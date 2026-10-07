@@ -1068,14 +1068,17 @@ export default function App() {
                   </div>
 
                   <div className="history-main">
-                    <strong>
-                      Product Comparison
-                    </strong>
+                   <strong>
+  {Array.isArray(item.products) && item.products.length > 0
+    ? item.products
+        .map((product) => product.name || "Product")
+        .join(" vs ")
+    : "Product Comparison"}
+</strong>
 
-                    <span>
-                      {item.created_at ||
-                        "Saved comparison"}
-                    </span>
+<span>
+  {item.created_at || "Saved comparison"}
+</span>
                   </div>
 
                   <div className="history-status">

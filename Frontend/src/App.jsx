@@ -8,23 +8,26 @@ const API_BASE =
 const FALLBACK_IMAGE =
   "https://dummyimage.com/600x400/e5e7eb/6b7280&text=Product+Image";
 
-/* =========================================================
-   BASIC HELPERS
-========================================================= */
+/* =========================
+   HELPERS
+========================= */
 
-function cleanText(value, fallback = "") {
+function cleanText(value, fallback = "Not available") {
   if (value === null || value === undefined) return fallback;
 
   let text = String(value).trim();
 
-  // Remove markdown links: [Product](https://...)
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/gi, "$1");
+  // Markdown links
+  text = text.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/gi,
+    "$1"
+  );
 
-  // Remove markdown bold / italic / heading
+  // Markdown formatting
   text = text.replace(/(\*\*|\*|__|_|###|##|#)/g, "");
 
-  // Decode escaped characters
-  text = text.replace(/\\([&*_#[\]()])/g, "$1");
+  // Escaped markdown characters
+  text = text.replace(/\\([*_#[\]()&])/g, "$1");
 
   return text.trim() || fallback;
 }
@@ -34,61 +37,25 @@ function cleanImage(value) {
 
   let text = String(value).trim();
 
-  // If image is markdown: [Product](URL)
-  const markdownMatch = text.match(
+  const match = text.match(
     /\[[^\]]*\]\((https?:\/\/[^)]+)\)/i
   );
 
-  if (markdownMatch) {
-    return markdownMatch[1];
-  }
+  if (match) return match[1];
 
-  // If surrounded by markdown characters
   text = text.replace(/^["'`]+|["'`]+$/g, "");
 
-  if (/^https?:\/\//i.test(text)) {
-    return text;
-  }
-
-  return "";
+  return /^https?:\/\//i.test(text) ? text : "";
 }
 
-function money(value) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number) || number <= 0) {
-    return "Not available";
-  }
-
-  return `₹${number.toLocaleString("en-IN")}`;
-}
-
-function rating(value) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number) || number <= 0) {
-    return "N/A";
-  }
-
-  return number.toFixed(1);
-}
-
-function parsePossiblyStringified(value) {
+function parseJSON(value) {
   let result = value;
 
   for (let i = 0; i < 4; i++) {
     if (typeof result !== "string") break;
 
-    const trimmed = result.trim();
-
-    if (!trimmed) return null;
-
     try {
-      const parsed = JSON.parse(trimmed);
-
-      if (parsed === result) break;
-
-      result = parsed;
+      result = JSON.parse(result);
     } catch {
       break;
     }
@@ -98,11 +65,11 @@ function parsePossiblyStringified(value) {
 }
 
 function normalizeProduct(product) {
-  let value = parsePossiblyStringified(product);
+  product = parseJSON(product);
 
-  if (!value || typeof value !== "object") {
+  if (!product || typeof product !== "object") {
     return {
-      name: cleanText(value, "Product"),
+      name: cleanText(product, "Product"),
       brand: "Unknown",
       platform: "Store",
       price: 0,
@@ -114,173 +81,245 @@ function normalizeProduct(product) {
     };
   }
 
-  const specifications =
-    parsePossiblyStringified(value.specifications) || {};
-
-  const scores =
-    parsePossiblyStringified(value.scores) || {};
-
   return {
-    ...value,
-
+    ...product,
     name: cleanText(
-      value.name ||
-        value.title ||
-        value.productName,
+      product.name ||
+        product.title ||
+        product.productName,
       "Product"
     ),
-
-    brand: cleanText(
-      value.brand,
-      "Unknown"
-    ),
-
+    brand: cleanText(product.brand, "Unknown"),
     platform: cleanText(
-      value.platform ||
-        value.store ||
-        value.source,
+      product.platform || product.store,
       "Store"
     ),
-
-    price:
-      Number(value.price) > 0
-        ? Number(value.price)
-        : 0,
-
-    rating:
-      Number(value.rating) > 0
-        ? Number(value.rating)
-        : 0,
-
+    price: Number(product.price) || 0,
+    rating: Number(product.rating) || 0,
     image: cleanImage(
-      value.image ||
-        value.imageUrl ||
-        value.thumbnail
+      product.image ||
+        product.imageUrl ||
+        product.thumbnail
     ),
-
     availability: cleanText(
-      value.availability,
+      product.availability,
       "Availability unknown"
     ),
-
-    specifications,
-
-    scores,
+    specifications:
+      parseJSON(product.specifications) || {},
+    scores: parseJSON(product.scores) || {},
   };
 }
 
-function normalizeProducts(products) {
-  if (!Array.isArray(products)) return [];
-
-  return products.map(normalizeProduct);
+function money(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "Not available";
+  return `₹${n.toLocaleString("en-IN")}`;
 }
 
-function getProductList(data) {
+function rating(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "N/A";
+  return n.toFixed(1);
+}
+
+function getProducts(data) {
   const products =
     data?.comparison?.products ||
     data?.result?.products ||
     data?.products ||
     [];
 
-  return normalizeProducts(products);
+  return Array.isArray(products)
+    ? products.map(normalizeProduct)
+    : [];
 }
 
-function getComparisonObject(data) {
-  return (
-    data?.comparison ||
-    data?.result ||
-    data ||
-    {}
+/* =========================
+   IMAGE
+========================= */
+
+function ProductImage({ src, alt = "Product" }) {
+  const [image, setImage] = useState(
+    cleanImage(src) || FALLBACK_IMAGE
   );
-}
-
-/* =========================================================
-   IMAGE COMPONENT
-========================================================= */
-
-function ProductImage({
-  src,
-  alt,
-  className = "",
-}) {
-  const [imageSrc, setImageSrc] =
-    useState(cleanImage(src) || FALLBACK_IMAGE);
 
   useEffect(() => {
-    setImageSrc(
-      cleanImage(src) || FALLBACK_IMAGE
-    );
+    setImage(cleanImage(src) || FALLBACK_IMAGE);
   }, [src]);
 
   return (
     <img
-      src={imageSrc}
-      alt={alt || "Product"}
-      className={className}
-      onError={() => {
-        if (imageSrc !== FALLBACK_IMAGE) {
-          setImageSrc(FALLBACK_IMAGE);
-        }
-      }}
+      src={image}
+      alt={alt}
+      onError={() => setImage(FALLBACK_IMAGE)}
     />
   );
 }
 
-/* =========================================================
+/* =========================
    API
-========================================================= */
+========================= */
 
-async function apiRequest(
-  endpoint,
-  options = {}
-) {
+async function apiRequest(url, options = {}) {
   const response = await fetch(
-    `${API_BASE}${endpoint}`,
+    `${API_BASE}${url}`,
     {
+      ...options,
       headers: {
         "Content-Type": "application/json",
         ...(options.headers || {}),
       },
-      ...options,
     }
   );
 
   const text = await response.text();
 
-  let data = {};
+  let data;
 
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(
-      "Server returned invalid response."
-    );
+    throw new Error("Invalid server response.");
   }
 
   if (!response.ok) {
     throw new Error(
       data?.message ||
         data?.error ||
-        `Request failed (${response.status})`
+        `Request failed: ${response.status}`
     );
   }
 
   return data;
 }
 
-/* =========================================================
-   COLLECTION CARD
-========================================================= */
+/* =========================
+   PRODUCT CARD
+========================= */
 
-function CollectionCard({
-  item,
-  onDelete,
+function ProductCard({
+  product,
+  winner,
+  cheapest,
+  highestRated,
+  onSave,
+  onLike,
 }) {
+  const p = normalizeProduct(product);
+
+  const score =
+    Number(
+      p.scores?.overall ??
+        p.scores?.overallScore ??
+        0
+    ) || 0;
+
+  return (
+    <div
+      className={
+        winner
+          ? "result-product-card winner-product"
+          : "result-product-card"
+      }
+    >
+      <div className="product-badges">
+        {winner && (
+          <span className="winner-badge">
+            🏆 BEST CHOICE
+          </span>
+        )}
+
+        {cheapest && (
+          <span className="price-badge">
+            💰 CHEAPEST
+          </span>
+        )}
+
+        {highestRated && (
+          <span className="rating-badge">
+            ⭐ HIGHEST RATED
+          </span>
+        )}
+      </div>
+
+      <div className="result-image">
+        <ProductImage
+          src={p.image}
+          alt={p.name}
+        />
+      </div>
+
+      <div className="result-product-info">
+        <div className="store-row">
+          <span>{p.platform}</span>
+          <span>{p.brand}</span>
+        </div>
+
+        <h3>{p.name}</h3>
+
+        <div className="price-rating-row">
+          <strong>{money(p.price)}</strong>
+
+          <span className="rating-pill">
+            ★ {rating(p.rating)}
+          </span>
+        </div>
+
+        <div className="availability">
+          <span className="availability-dot" />
+          {p.availability}
+        </div>
+
+        <div className="score-mini">
+          <div>
+            <span>Overall Score</span>
+            <strong>
+              {Math.round(score)}/100
+            </strong>
+          </div>
+
+          <div className="score-bar">
+            <span
+              style={{
+                width: `${Math.min(
+                  100,
+                  Math.max(0, score)
+                )}%`,
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="card-actions">
+          <button
+            className="save-card-button"
+            onClick={() => onSave(p)}
+          >
+            ♡ Save
+          </button>
+
+          <button
+            className="like-card-button"
+            onClick={() => onLike(p)}
+          >
+            ♥ Like
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================
+   COLLECTION CARD
+========================= */
+
+function CollectionCard({ item, onDelete }) {
   let product =
     item?.product || item;
 
-  product =
-    normalizeProduct(product);
+  product = normalizeProduct(product);
 
   return (
     <div className="collection-card">
@@ -293,12 +332,10 @@ function CollectionCard({
 
       <div className="collection-info">
         <span className="store-label">
-          {product.platform || "Product"}
+          {product.platform}
         </span>
 
-        <h3>
-          {product.name || "Product"}
-        </h3>
+        <h3>{product.name}</h3>
 
         <div className="collection-meta">
           <strong>
@@ -323,310 +360,9 @@ function CollectionCard({
   );
 }
 
-/* =========================================================
-   PRODUCT RESULT CARD
-========================================================= */
-
-function ProductResultCard({
-  product,
-  isWinner,
-  isCheapest,
-  isHighestRated,
-  onSave,
-  onLike,
-}) {
-  const normalized =
-    normalizeProduct(product);
-
-  const scores =
-    normalized.scores || {};
-
-  const overall =
-    Number(
-      scores.overall ??
-        scores.overallScore ??
-        0
-    ) || 0;
-
-  return (
-    <div
-      className={
-        isWinner
-          ? "result-product-card winner-product"
-          : "result-product-card"
-      }
-    >
-      <div className="product-badges">
-        {isWinner && (
-          <span className="winner-badge">
-            🏆 Best Choice
-          </span>
-        )}
-
-        {isCheapest && (
-          <span className="cheap-badge">
-            💰 Cheapest
-          </span>
-        )}
-
-        {isHighestRated && (
-          <span className="rating-badge">
-            ⭐ Highest Rated
-          </span>
-        )}
-      </div>
-
-      <div className="result-image">
-        <ProductImage
-          src={normalized.image}
-          alt={normalized.name}
-        />
-      </div>
-
-      <div className="result-product-info">
-        <div className="store-row">
-          <span>
-            {normalized.platform ||
-              "Store"}
-          </span>
-
-          <span>
-            {normalized.brand ||
-              "Brand"}
-          </span>
-        </div>
-
-        <h3>
-          {normalized.name}
-        </h3>
-
-        <div className="price-rating-row">
-          <strong>
-            {money(normalized.price)}
-          </strong>
-
-          <span className="rating-pill">
-            ★ {rating(normalized.rating)}
-          </span>
-        </div>
-
-        <div className="availability">
-          <span className="availability-dot"></span>
-
-          {normalized.availability ||
-            "Availability unknown"}
-        </div>
-
-        <div className="score-mini">
-          <div>
-            <span>Overall</span>
-
-            <strong>
-              {Math.round(overall)}/100
-            </strong>
-          </div>
-
-          <div className="score-bar">
-            <span
-              style={{
-                width: `${Math.min(
-                  100,
-                  Math.max(0, overall)
-                )}%`,
-              }}
-            />
-          </div>
-        </div>
-
-        <div className="card-actions">
-          <button
-            className="save-card-button"
-            onClick={() =>
-              onSave(normalized)
-            }
-          >
-            ♡ Save
-          </button>
-
-          <button
-            className="like-card-button"
-            onClick={() =>
-              onLike(normalized)
-            }
-          >
-            ♥ Like
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   COMPARISON RESULT
-========================================================= */
-
-function ComparisonResult({
-  comparison,
-  onSave,
-  onLike,
-}) {
-  const products = useMemo(
-    () => getProductList(comparison),
-    [comparison]
-  );
-
-  if (!products.length) {
-    return (
-      <div className="empty-state">
-        <h3>No comparison result yet</h3>
-        <p>
-          Enter two product URLs and
-          start comparison.
-        </p>
-      </div>
-    );
-  }
-
-  const best =
-    comparison?.bestProduct || {};
-
-  const cheapest =
-    comparison?.cheapestProduct || {};
-
-  const highestRated =
-    comparison?.highestRatedProduct ||
-    {};
-
-  return (
-    <section className="comparison-results">
-      <div className="section-heading">
-        <div>
-          <span className="section-kicker">
-            AI ANALYSIS
-          </span>
-
-          <h2>
-            Product Comparison
-          </h2>
-
-          <p>
-            Compare price, specifications,
-            ratings and overall value.
-          </p>
-        </div>
-      </div>
-
-      <div className="result-products-grid">
-        {products.map(
-          (product, index) => (
-            <ProductResultCard
-              key={
-                `${product.name}-${index}`
-              }
-              product={product}
-              isWinner={
-                product.name ===
-                cleanText(
-                  best.name,
-                  ""
-                )
-              }
-              isCheapest={
-                product.name ===
-                cleanText(
-                  cheapest.name,
-                  ""
-                )
-              }
-              isHighestRated={
-                product.name ===
-                cleanText(
-                  highestRated.name,
-                  ""
-                )
-              }
-              onSave={onSave}
-              onLike={onLike}
-            />
-          )
-        )}
-      </div>
-
-      <div className="recommendation-card">
-        <span className="section-kicker">
-          AI RECOMMENDATION
-        </span>
-
-        <h3>
-          {cleanText(
-            comparison?.recommendation ||
-              comparison?.ai?.recommendation ||
-              comparison?.ai?.summary,
-            "Comparison completed successfully."
-          )}
-        </h3>
-      </div>
-
-      <div className="comparison-summary-grid">
-        <div className="summary-card">
-          <span>Best Product</span>
-          <strong>
-            {cleanText(
-              best.name,
-              "Not available"
-            )}
-          </strong>
-        </div>
-
-        <div className="summary-card">
-          <span>Cheapest</span>
-          <strong>
-            {cleanText(
-              cheapest.name,
-              "Not available"
-            )}
-          </strong>
-        </div>
-
-        <div className="summary-card">
-          <span>Highest Rated</span>
-          <strong>
-            {cleanText(
-              highestRated.name,
-              "Not available"
-            )}
-          </strong>
-        </div>
-
-        <div className="summary-card">
-          <span>Price Difference</span>
-          <strong>
-            {money(
-              comparison?.priceDifference
-            )}
-          </strong>
-        </div>
-      </div>
-
-      <div className="score-breakdown">
-        <h3>
-          Scoring Breakdown
-        </h3>
-
-        <p>
-          Price 25% • Specifications 40%
-          • Rating 20% • Data confidence
-          15%
-        </p>
-      </div>
-    </section>
-  );
-}
-
-/* =========================================================
-   MAIN APP
-========================================================= */
+/* =========================
+   APP
+========================= */
 
 export default function App() {
   const [page, setPage] =
@@ -639,12 +375,8 @@ export default function App() {
       ) || "light"
     );
 
-  const [firstUrl, setFirstUrl] =
-    useState("");
-
-  const [secondUrl, setSecondUrl] =
-    useState("");
-
+  const [url1, setUrl1] = useState("");
+  const [url2, setUrl2] = useState("");
   const [requirement, setRequirement] =
     useState("");
 
@@ -654,24 +386,17 @@ export default function App() {
   const [history, setHistory] =
     useState([]);
 
-  const [savedProducts, setSavedProducts] =
+  const [saved, setSaved] =
     useState([]);
 
-  const [likedProducts, setLikedProducts] =
+  const [liked, setLiked] =
     useState([]);
 
   const [loading, setLoading] =
     useState(false);
 
-  const [message, setMessage] =
-    useState("");
-
   const [error, setError] =
     useState("");
-
-  /* =======================================================
-     THEME
-  ======================================================= */
 
   useEffect(() => {
     document.body.className =
@@ -685,36 +410,120 @@ export default function App() {
     );
   }, [theme]);
 
-  /* =======================================================
-     LOAD DATA
-  ======================================================= */
-
   useEffect(() => {
     loadHistory();
-    loadSavedProducts();
-    loadLikedProducts();
+    loadSaved();
+    loadLiked();
   }, []);
 
-  /* =======================================================
-     HISTORY
-  ======================================================= */
+  /* =========================
+     LOAD
+  ========================= */
 
   async function loadHistory() {
     try {
       const data =
         await apiRequest("/api/history");
 
-      const items =
+      setHistory(
         Array.isArray(data)
           ? data
-          : data.history || [];
-
-      setHistory(items);
-    } catch (err) {
-      console.log(
-        "History error:",
-        err.message
+          : data.history || []
       );
+    } catch (e) {
+      console.log(e.message);
+    }
+  }
+
+  async function loadSaved() {
+    try {
+      const data =
+        await apiRequest("/api/saved");
+
+      setSaved(
+        Array.isArray(data)
+          ? data
+          : data.products || []
+      );
+    } catch (e) {
+      console.log(e.message);
+    }
+  }
+
+  async function loadLiked() {
+    try {
+      const data =
+        await apiRequest("/api/liked");
+
+      setLiked(
+        Array.isArray(data)
+          ? data
+          : data.products || []
+      );
+    } catch (e) {
+      console.log(e.message);
+    }
+  }
+
+  /* =========================
+     SAVE / LIKE
+  ========================= */
+
+  async function saveProduct(product) {
+    try {
+      await apiRequest("/api/saved", {
+        method: "POST",
+        body: JSON.stringify({
+          product: normalizeProduct(product),
+        }),
+      });
+
+      await loadSaved();
+      alert("Product saved successfully.");
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function likeProduct(product) {
+    try {
+      await apiRequest("/api/liked", {
+        method: "POST",
+        body: JSON.stringify({
+          product: normalizeProduct(product),
+        }),
+      });
+
+      await loadLiked();
+      alert("Product liked successfully.");
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function deleteSaved(id) {
+    try {
+      await apiRequest(
+        `/api/saved/${id}`,
+        { method: "DELETE" }
+      );
+
+      await loadSaved();
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function deleteLiked(id) {
+    try {
+      await apiRequest(
+        `/api/liked/${id}`,
+        { method: "DELETE" }
+      );
+
+      await loadLiked();
+    } catch (e) {
+      setError(e.message);
     }
   }
 
@@ -722,161 +531,25 @@ export default function App() {
     try {
       await apiRequest(
         "/api/history",
-        {
-          method: "DELETE",
-        }
+        { method: "DELETE" }
       );
 
       setHistory([]);
-
-      setMessage(
-        "History cleared successfully."
-      );
-    } catch (err) {
-      setError(err.message);
+    } catch (e) {
+      setError(e.message);
     }
   }
 
-  /* =======================================================
-     SAVED
-  ======================================================= */
-
-  async function loadSavedProducts() {
-    try {
-      const data =
-        await apiRequest("/api/saved");
-
-      const items =
-        Array.isArray(data)
-          ? data
-          : data.products || [];
-
-      setSavedProducts(items);
-    } catch (err) {
-      console.log(
-        "Saved products error:",
-        err.message
-      );
-    }
-  }
-
-  async function saveProduct(product) {
-    try {
-      await apiRequest(
-        "/api/saved",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            product:
-              normalizeProduct(product),
-          }),
-        }
-      );
-
-      await loadSavedProducts();
-
-      setMessage(
-        "Product saved successfully."
-      );
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  async function deleteSavedProduct(id) {
-    try {
-      await apiRequest(
-        `/api/saved/${id}`,
-        {
-          method: "DELETE",
-        }
-      );
-
-      await loadSavedProducts();
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  /* =======================================================
-     LIKED
-  ======================================================= */
-
-  async function loadLikedProducts() {
-    try {
-      const data =
-        await apiRequest("/api/liked");
-
-      const items =
-        Array.isArray(data)
-          ? data
-          : data.products || [];
-
-      setLikedProducts(items);
-    } catch (err) {
-      console.log(
-        "Liked products error:",
-        err.message
-      );
-    }
-  }
-
-  async function likeProduct(product) {
-    try {
-      await apiRequest(
-        "/api/liked",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            product:
-              normalizeProduct(product),
-          }),
-        }
-      );
-
-      await loadLikedProducts();
-
-      setMessage(
-        "Product liked successfully."
-      );
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  async function deleteLikedProduct(id) {
-    try {
-      await apiRequest(
-        `/api/liked/${id}`,
-        {
-          method: "DELETE",
-        }
-      );
-
-      await loadLikedProducts();
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  /* =======================================================
+  /* =========================
      COMPARE
-  ======================================================= */
+  ========================= */
 
-  async function handleCompare() {
+  async function compareProducts() {
     setError("");
-    setMessage("");
 
-    if (!firstUrl.trim()) {
+    if (!url1.trim() || !url2.trim()) {
       setError(
-        "Please enter the first product URL."
-      );
-      return;
-    }
-
-    if (!secondUrl.trim()) {
-      setError(
-        "Please enter the second product URL."
+        "Please enter both product URLs."
       );
       return;
     }
@@ -889,13 +562,11 @@ export default function App() {
           "/api/compare",
           {
             method: "POST",
-
             body: JSON.stringify({
               products: [
-                firstUrl.trim(),
-                secondUrl.trim(),
+                url1.trim(),
+                url2.trim(),
               ],
-
               requirement:
                 requirement.trim(),
             }),
@@ -903,177 +574,166 @@ export default function App() {
         );
 
       const result =
-        getComparisonObject(data);
+        data?.comparison ||
+        data?.result ||
+        data;
 
       setComparison(result);
 
       await loadHistory();
-
-      setMessage(
-        "Products compared successfully."
-      );
-    } catch (err) {
-      console.error(err);
-
-      setError(
-        err.message ||
-          "Comparison failed."
-      );
+    } catch (e) {
+      setError(e.message);
     } finally {
       setLoading(false);
     }
   }
 
-  /* =======================================================
-     NAVIGATION
-  ======================================================= */
+  /* =========================
+     HISTORY NAMES
+  ========================= */
 
-  function goToCompare() {
-    setPage("compare");
-  }
-
-  function resetMessages() {
-    setError("");
-    setMessage("");
-  }
-
-  /* =======================================================
-     HISTORY PRODUCT NAMES
-  ======================================================= */
-
-  function getHistoryNames(item) {
+  function historyNames(item) {
     let products =
-      parsePossiblyStringified(
-        item?.products
-      );
+      parseJSON(item?.products);
 
-    if (
-      typeof products === "string"
-    ) {
-      products =
-        parsePossiblyStringified(
-          products
-        );
+    if (typeof products === "string") {
+      products = parseJSON(products);
     }
 
     if (!Array.isArray(products)) {
       return "Product Comparison";
     }
 
-    const names = products
-      .map((product) =>
-        normalizeProduct(product).name
-      )
-      .filter(Boolean);
-
-    return names.length
-      ? names.join(" vs ")
-      : "Product Comparison";
+    return products
+      .map((p) => normalizeProduct(p).name)
+      .join(" vs ");
   }
 
-  /* =======================================================
-     RENDER
-  ======================================================= */
+  /* =========================
+     RESULT DATA
+  ========================= */
+
+  const products = useMemo(
+    () => getProducts(comparison),
+    [comparison]
+  );
+
+  const best =
+    comparison?.bestProduct || {};
+
+  const cheapest =
+    comparison?.cheapestProduct || {};
+
+  const highestRated =
+    comparison?.highestRatedProduct || {};
+
+  /* =========================
+     UI
+  ========================= */
 
   return (
-    <div
-      className={`app ${
-        theme === "dark"
-          ? "dark-theme"
-          : ""
-      }`}
-    >
-      {/* HEADER */}
+    <div className="app">
 
-      <header className="top-header">
-        <div className="brand">
-          <div className="brand-logo">
+      {/* NAVBAR */}
+
+      <header className="navbar">
+
+        <div
+          className="brand"
+          onClick={() =>
+            setPage("dashboard")
+          }
+        >
+          <div className="brand-mark">
             AI
           </div>
 
           <div>
-            <h1>
-              AI Product
-              <span>
-                Comparison
-              </span>
-            </h1>
+            <strong>
+              ProductIQ
+            </strong>
 
-            <small>
-              Smart • Simple • AI Powered
-            </small>
+            <span>
+              AI Product Comparison
+            </span>
           </div>
         </div>
 
-        <nav className="main-nav">
+        <nav>
+
           <button
             className={
-              page === "dashboard"
-                ? "active"
-                : ""
+              `nav-link ${
+                page === "dashboard"
+                  ? "active"
+                  : ""
+              }`
             }
-            onClick={() => {
-              resetMessages();
-              setPage("dashboard");
-            }}
+            onClick={() =>
+              setPage("dashboard")
+            }
           >
             Dashboard
           </button>
 
           <button
             className={
-              page === "compare"
-                ? "active"
-                : ""
+              `nav-link ${
+                page === "compare"
+                  ? "active"
+                  : ""
+              }`
             }
-            onClick={() => {
-              resetMessages();
-              setPage("compare");
-            }}
+            onClick={() =>
+              setPage("compare")
+            }
           >
             Compare
           </button>
 
           <button
             className={
-              page === "history"
-                ? "active"
-                : ""
+              `nav-link ${
+                page === "saved"
+                  ? "active"
+                  : ""
+              }`
             }
-            onClick={() => {
-              resetMessages();
-              setPage("history");
-            }}
-          >
-            History
-          </button>
-
-          <button
-            className={
-              page === "saved"
-                ? "active"
-                : ""
+            onClick={() =>
+              setPage("saved")
             }
-            onClick={() => {
-              resetMessages();
-              setPage("saved");
-            }}
           >
             Saved
           </button>
 
           <button
             className={
-              page === "liked"
-                ? "active"
-                : ""
+              `nav-link ${
+                page === "liked"
+                  ? "active"
+                  : ""
+              }`
             }
-            onClick={() => {
-              resetMessages();
-              setPage("liked");
-            }}
+            onClick={() =>
+              setPage("liked")
+            }
           >
             Liked
+          </button>
+
+          <button
+            className={
+              `nav-link ${
+                page === "history"
+                  ? "active"
+                  : ""
+              }`
+            }
+            onClick={() =>
+              setPage("history")
+            }
+          >
+            History
           </button>
 
           <button
@@ -1087,461 +747,1024 @@ export default function App() {
             }
           >
             {theme === "dark"
-              ? "☀️"
-              : "🌙"}
+              ? "☀"
+              : "☾"}
           </button>
+
         </nav>
       </header>
 
-      {/* MESSAGES */}
+      {/* ERROR */}
 
-      {(message || error) && (
-        <div className="message-container">
-          {message && (
-            <div className="success-message">
-              ✓ {message}
-            </div>
-          )}
-
-          {error && (
-            <div className="error-message">
-              ✕ {error}
-            </div>
-          )}
+      {error && (
+        <div className="page">
+          <div className="error-box">
+            <span>!</span>
+            {error}
+          </div>
         </div>
       )}
 
-      {/* DASHBOARD */}
+      {/* =========================
+          DASHBOARD
+      ========================= */}
 
       {page === "dashboard" && (
-        <main className="dashboard-page">
-          <section className="hero-section">
+        <>
+          <section className="hero">
+
             <div className="hero-content">
-              <span className="hero-kicker">
-                AI PRODUCT COMPARISON
+
+              <span className="hero-badge">
+                ✦ AI POWERED
               </span>
 
-              <h2>
+              <h1>
                 Find the
                 <br />
-                <span>Best Product</span>
-              </h2>
+                <span>Best Product.</span>
+              </h1>
 
               <p>
-                Compare products from
-                Amazon and Flipkart using
-                price, specifications,
-                ratings and AI-powered
-                recommendations.
+                Compare products from Amazon
+                and Flipkart using price,
+                specifications, ratings and
+                intelligent AI recommendations.
               </p>
 
-              <button
-                className="primary-button"
-                onClick={goToCompare}
-              >
-                Start Comparing →
-              </button>
+              <div className="hero-actions">
+
+                <button
+                  className="primary-button"
+                  onClick={() =>
+                    setPage("compare")
+                  }
+                >
+                  Start Comparing
+                  <span>→</span>
+                </button>
+
+                <button
+                  className="secondary-button"
+                  onClick={() =>
+                    setPage("history")
+                  }
+                >
+                  View History
+                </button>
+
+              </div>
             </div>
 
             <div className="hero-visual">
-              <div className="floating-card card-one">
-                <span>PRICE</span>
-                <strong>
-                  ₹ Best Value
-                </strong>
+
+              <div className="orb orb-one" />
+              <div className="orb orb-two" />
+
+              <div className="ai-card">
+
+                <div className="ai-card-icon">
+                  ✦
+                </div>
+
+                <div>
+                  <span>
+                    AI Recommendation
+                  </span>
+
+                  <strong>
+                    Best Value Found
+                  </strong>
+                </div>
+
               </div>
 
-              <div className="floating-card card-two">
-                <span>RATING</span>
-                <strong>
-                  ★ 4.8
-                </strong>
+              <div className="floating-card floating-one">
+                <span>₹</span>
+                Best Price
               </div>
 
-              <div className="ai-circle">
-                <span>AI</span>
+              <div className="floating-card floating-two">
+                <span>★</span>
+                4.8 Rating
               </div>
+
             </div>
           </section>
 
-          <section className="feature-grid">
-            <div className="feature-card">
-              <div className="feature-icon">
-                🔗
+          <section className="page">
+
+            <div className="section-heading">
+              <div>
+                <span className="section-kicker">
+                  FEATURES
+                </span>
+
+                <h2>
+                  Everything you need
+                </h2>
               </div>
 
-              <h3>
-                Amazon & Flipkart
-              </h3>
-
               <p>
-                Compare products using
-                their product URLs.
+                Make smarter product
+                decisions with AI-powered
+                comparison.
               </p>
             </div>
 
-            <div className="feature-card">
-              <div className="feature-icon">
-                📊
+            <div className="feature-grid">
+
+              <div className="feature-card">
+                <div className="feature-icon">
+                  🔗
+                </div>
+
+                <h3>
+                  Amazon & Flipkart
+                </h3>
+
+                <p>
+                  Paste product URLs and
+                  compare products from both
+                  platforms.
+                </p>
+
+                <span className="feature-arrow">
+                  →
+                </span>
               </div>
 
-              <h3>
-                Smart Comparison
-              </h3>
+              <div className="feature-card">
+                <div className="feature-icon">
+                  📊
+                </div>
 
-              <p>
-                Compare price, rating and
-                specifications.
-              </p>
-            </div>
+                <h3>
+                  Smart Comparison
+                </h3>
 
-            <div className="feature-card">
-              <div className="feature-icon">
-                🤖
+                <p>
+                  Compare price, ratings,
+                  specifications and value.
+                </p>
+
+                <span className="feature-arrow">
+                  →
+                </span>
               </div>
 
-              <h3>
-                AI Recommendation
-              </h3>
+              <div className="feature-card">
+                <div className="feature-icon">
+                  🤖
+                </div>
 
-              <p>
-                Get an intelligent
-                product recommendation.
-              </p>
-            </div>
+                <h3>
+                  AI Recommendation
+                </h3>
 
-            <div className="feature-card">
-              <div className="feature-icon">
-                💾
+                <p>
+                  Get an intelligent
+                  recommendation based on
+                  your requirements.
+                </p>
+
+                <span className="feature-arrow">
+                  →
+                </span>
               </div>
 
-              <h3>
-                Save & Like
-              </h3>
+              <div className="feature-card">
+                <div className="feature-icon">
+                  💾
+                </div>
 
-              <p>
-                Keep your favourite
-                products organized.
-              </p>
+                <h3>
+                  Save & Like
+                </h3>
+
+                <p>
+                  Save products and keep your
+                  favourite products organized.
+                </p>
+
+                <span className="feature-arrow">
+                  →
+                </span>
+              </div>
+
             </div>
+
           </section>
-        </main>
+        </>
       )}
 
-      {/* COMPARE */}
+      {/* =========================
+          COMPARE
+      ========================= */}
 
       {page === "compare" && (
-        <main className="compare-page">
-          <section className="page-heading">
+        <main className="page">
+
+          <div className="page-title">
             <span className="section-kicker">
-              COMPARE PRODUCTS
+              PRODUCT COMPARISON
             </span>
 
-            <h2>
-              Which product is
-              <span> better?</span>
-            </h2>
+            <h1>
+              Compare.
+              <br />
+              <span>
+                Choose better.
+              </span>
+            </h1>
 
             <p>
-              Paste product URLs from
-              Amazon India or Flipkart.
+              Paste two Amazon or Flipkart
+              product URLs and let AI analyze
+              which product gives you the
+              best value.
             </p>
-          </section>
+          </div>
 
-          <section className="compare-form-card">
-            <div className="url-input-grid">
-              <div className="input-group">
-                <label>
-                  Product 1 URL
-                </label>
+          <div className="compare-input-card">
 
-                <input
-                  type="url"
-                  placeholder="Paste Amazon / Flipkart URL"
-                  value={firstUrl}
-                  onChange={(e) =>
-                    setFirstUrl(
-                      e.target.value
-                    )
-                  }
-                />
+            <div className="input-header">
+
+              <div>
+                <div className="step-badge">
+                  01
+                </div>
+
+                <div>
+                  <h2>
+                    Add Products
+                  </h2>
+
+                  <p>
+                    Enter product URLs from
+                    Amazon India or Flipkart.
+                  </p>
+                </div>
               </div>
 
-              <div className="vs-divider">
+            </div>
+
+            <div className="url-grid">
+
+              <div className="url-field">
+
+                <label>
+                  Product 01
+                </label>
+
+                <div className="url-input-wrap amazon-input">
+
+                  <div className="store-icon">
+                    A
+                  </div>
+
+                  <input
+                    value={url1}
+                    onChange={(e) =>
+                      setUrl1(e.target.value)
+                    }
+                    placeholder="Paste Amazon / Flipkart URL"
+                  />
+
+                </div>
+              </div>
+
+              <div className="vs-box">
                 VS
               </div>
 
-              <div className="input-group">
+              <div className="url-field">
+
                 <label>
-                  Product 2 URL
+                  Product 02
                 </label>
 
-                <input
-                  type="url"
-                  placeholder="Paste Amazon / Flipkart URL"
-                  value={secondUrl}
-                  onChange={(e) =>
-                    setSecondUrl(
-                      e.target.value
-                    )
-                  }
-                />
+                <div className="url-input-wrap flipkart-input">
+
+                  <div className="store-icon">
+                    F
+                  </div>
+
+                  <input
+                    value={url2}
+                    onChange={(e) =>
+                      setUrl2(e.target.value)
+                    }
+                    placeholder="Paste Amazon / Flipkart URL"
+                  />
+
+                </div>
               </div>
+
             </div>
 
-            <div className="input-group">
+            <div className="requirement-row">
+
               <label>
-                What are you looking for?
+                <span>
+                  Your Requirement
+                </span>
+
+                <small>
+                  Optional — tell AI what
+                  matters to you.
+                </small>
               </label>
 
               <input
-                type="text"
-                placeholder="Example: Best laptop for coding and AI/ML"
                 value={requirement}
                 onChange={(e) =>
                   setRequirement(
                     e.target.value
                   )
                 }
+                placeholder="Example: Best laptop for coding and AI/ML"
               />
+
             </div>
 
             <button
               className="compare-button"
-              onClick={handleCompare}
+              onClick={compareProducts}
               disabled={loading}
             >
               {loading
-                ? "Comparing..."
-                : "Compare Products →"}
+                ? "Analyzing Products..."
+                : "Compare Products"}
+              <span>→</span>
             </button>
-          </section>
 
-          {comparison && (
-            <ComparisonResult
-              comparison={comparison}
-              onSave={saveProduct}
-              onLike={likeProduct}
-            />
+          </div>
+
+          {loading && (
+            <div className="loading-result">
+
+              <div className="loading-header">
+
+                <div className="loading-orb">
+                  ✦
+                </div>
+
+                <div>
+                  <div className="skeleton title-skeleton" />
+                  <div className="skeleton text-skeleton" />
+                </div>
+
+              </div>
+
+              <div className="loading-grid">
+                <div className="skeleton-card" />
+                <div className="skeleton-card" />
+              </div>
+
+            </div>
           )}
+
+          {!loading && comparison && (
+            <section className="comparison-result">
+
+              <div className="result-heading">
+
+                <div>
+                  <span className="section-kicker">
+                    AI ANALYSIS COMPLETE
+                  </span>
+
+                  <h2>
+                    Comparison Result
+                  </h2>
+                </div>
+
+                <div className="ai-status">
+                  <span className="status-dot" />
+                  AI Powered
+                </div>
+
+              </div>
+
+              {best.name && (
+                <div className="winner-banner">
+
+                  <div className="winner-icon">
+                    🏆
+                  </div>
+
+                  <div className="winner-content">
+
+                    <span>
+                      AI RECOMMENDED
+                    </span>
+
+                    <h2>
+                      {cleanText(
+                        best.name
+                      )}
+                    </h2>
+
+                    <p>
+                      {cleanText(
+                        comparison.recommendation,
+                        "This product provides the best overall value."
+                      )}
+                    </p>
+
+                  </div>
+
+                  <div className="winner-score">
+
+                    <strong>
+                      {Math.round(
+                        Number(
+                          best.score
+                        ) || 0
+                      )}
+                    </strong>
+
+                    <span>
+                      /100
+                    </span>
+
+                    <small>
+                      Overall Score
+                    </small>
+
+                  </div>
+
+                </div>
+              )}
+
+              <div className="quick-stats">
+
+                <div className="quick-stat">
+                  <div className="quick-stat-icon">
+                    ₹
+                  </div>
+
+                  <div>
+                    <span>
+                      Cheapest
+                    </span>
+
+                    <strong>
+                      {money(
+                        cheapest.price
+                      )}
+                    </strong>
+
+                    <small>
+                      {cleanText(
+                        cheapest.name,
+                        "Not available"
+                      )}
+                    </small>
+                  </div>
+                </div>
+
+                <div className="quick-stat">
+                  <div className="quick-stat-icon">
+                    ★
+                  </div>
+
+                  <div>
+                    <span>
+                      Highest Rated
+                    </span>
+
+                    <strong>
+                      {rating(
+                        highestRated.rating
+                      )}
+                    </strong>
+
+                    <small>
+                      {cleanText(
+                        highestRated.name,
+                        "Not available"
+                      )}
+                    </small>
+                  </div>
+                </div>
+
+                <div className="quick-stat">
+                  <div className="quick-stat-icon">
+                    ↕
+                  </div>
+
+                  <div>
+                    <span>
+                      Price Difference
+                    </span>
+
+                    <strong>
+                      {money(
+                        comparison.priceDifference
+                      )}
+                    </strong>
+
+                    <small>
+                      Between products
+                    </small>
+                  </div>
+                </div>
+
+                <div className="quick-stat">
+                  <div className="quick-stat-icon">
+                    🤖
+                  </div>
+
+                  <div>
+                    <span>
+                      AI Engine
+                    </span>
+
+                    <strong>
+                      Gemini
+                    </strong>
+
+                    <small>
+                      AI Recommendation
+                    </small>
+                  </div>
+                </div>
+
+              </div>
+
+              <div className="product-result-grid">
+
+                {products.map(
+                  (product, index) => (
+                    <ProductCard
+                      key={
+                        `${product.name}-${index}`
+                      }
+                      product={product}
+                      winner={
+                        product.name ===
+                        cleanText(
+                          best.name,
+                          ""
+                        )
+                      }
+                      cheapest={
+                        product.name ===
+                        cleanText(
+                          cheapest.name,
+                          ""
+                        )
+                      }
+                      highestRated={
+                        product.name ===
+                        cleanText(
+                          highestRated.name,
+                          ""
+                        )
+                      }
+                      onSave={saveProduct}
+                      onLike={likeProduct}
+                    />
+                  )
+                )}
+
+              </div>
+
+              <div className="ai-insight-grid">
+
+                <div className="ai-insight-card main-insight">
+
+                  <div className="insight-heading">
+
+                    <div className="insight-icon">
+                      ✦
+                    </div>
+
+                    <div>
+                      <span>
+                        AI INSIGHT
+                      </span>
+
+                      <h3>
+                        Recommendation
+                      </h3>
+                    </div>
+
+                  </div>
+
+                  <p>
+                    {cleanText(
+                      comparison?.recommendation ||
+                        comparison?.ai?.recommendation ||
+                        comparison?.ai?.summary,
+                      "The comparison has been completed successfully."
+                    )}
+                  </p>
+
+                  <div className="best-for">
+                    <strong>
+                      Best For
+                    </strong>
+
+                    <span>
+                      {requirement ||
+                        "Overall value"}
+                    </span>
+                  </div>
+
+                </div>
+
+                <div className="ai-insight-card">
+
+                  <div className="insight-heading">
+
+                    <div className="insight-icon">
+                      ✓
+                    </div>
+
+                    <div>
+                      <span>
+                        SCORING
+                      </span>
+
+                      <h3>
+                        Weightage
+                      </h3>
+                    </div>
+
+                  </div>
+
+                  <ul className="insight-list">
+
+                    <li>
+                      <span>✓</span>
+                      Price — 25%
+                    </li>
+
+                    <li>
+                      <span>✓</span>
+                      Specifications — 40%
+                    </li>
+
+                    <li>
+                      <span>✓</span>
+                      Rating — 20%
+                    </li>
+
+                    <li>
+                      <span>✓</span>
+                      Data Confidence — 15%
+                    </li>
+
+                  </ul>
+
+                </div>
+
+                <div className="ai-insight-card">
+
+                  <div className="insight-heading">
+
+                    <div className="insight-icon">
+                      🔗
+                    </div>
+
+                    <div>
+                      <span>
+                        DATA
+                      </span>
+
+                      <h3>
+                        Product Sources
+                      </h3>
+                    </div>
+
+                  </div>
+
+                  <ul className="insight-list">
+
+                    {products.map(
+                      (p, i) => (
+                        <li key={i}>
+                          <span>✓</span>
+                          {p.platform} product
+                          data
+                        </li>
+                      )
+                    )}
+
+                  </ul>
+
+                </div>
+
+              </div>
+
+              <div className="rag-banner">
+
+                <div className="rag-icon">
+                  ✓
+                </div>
+
+                <div>
+                  <strong>
+                    Grounded Product Analysis
+                  </strong>
+
+                  <p>
+                    Recommendations are based
+                    on extracted Amazon/Flipkart
+                    product information.
+                  </p>
+                </div>
+
+                <div className="rag-badge">
+                  VERIFIED
+                </div>
+
+              </div>
+
+            </section>
+          )}
+
         </main>
       )}
 
-      {/* HISTORY */}
+      {/* =========================
+          SAVED
+      ========================= */}
 
-      {page === "history" && (
-        <main className="collection-page">
-          <section className="page-heading">
+      {page === "saved" && (
+        <main className="page">
+
+          <div className="page-title">
             <span className="section-kicker">
-              YOUR ACTIVITY
+              YOUR COLLECTION
             </span>
 
-            <h2>
-              Comparison
-              <span> History</span>
-            </h2>
+            <h1>
+              Saved
+              <br />
+              <span>Products.</span>
+            </h1>
 
             <p>
-              Your previous product
-              comparisons.
+              Products you saved for later.
             </p>
+          </div>
+
+          {saved.length === 0 ? (
+            <div className="empty-card large-empty">
+
+              <div className="empty-icon">
+                ♡
+              </div>
+
+              <h3>
+                No saved products
+              </h3>
+
+              <p>
+                Save a product from the
+                comparison page and it will
+                appear here.
+              </p>
+
+              <button
+                className="primary-button"
+                onClick={() =>
+                  setPage("compare")
+                }
+              >
+                Compare Products →
+              </button>
+
+            </div>
+          ) : (
+            <div className="collection-grid">
+
+              {saved.map(
+                (item, index) => (
+                  <CollectionCard
+                    key={
+                      item.id || index
+                    }
+                    item={item}
+                    onDelete={() =>
+                      deleteSaved(item.id)
+                    }
+                  />
+                )
+              )}
+
+            </div>
+          )}
+
+        </main>
+      )}
+
+      {/* =========================
+          LIKED
+      ========================= */}
+
+      {page === "liked" && (
+        <main className="page">
+
+          <div className="page-title">
+            <span className="section-kicker">
+              YOUR FAVOURITES
+            </span>
+
+            <h1>
+              Liked
+              <br />
+              <span>Products.</span>
+            </h1>
+
+            <p>
+              Products you liked while
+              comparing.
+            </p>
+          </div>
+
+          {liked.length === 0 ? (
+            <div className="empty-card large-empty">
+
+              <div className="empty-icon">
+                ♥
+              </div>
+
+              <h3>
+                No liked products
+              </h3>
+
+              <p>
+                Like a product from the
+                comparison page and it will
+                appear here.
+              </p>
+
+              <button
+                className="primary-button"
+                onClick={() =>
+                  setPage("compare")
+                }
+              >
+                Compare Products →
+              </button>
+
+            </div>
+          ) : (
+            <div className="collection-grid">
+
+              {liked.map(
+                (item, index) => (
+                  <CollectionCard
+                    key={
+                      item.id || index
+                    }
+                    item={item}
+                    onDelete={() =>
+                      deleteLiked(item.id)
+                    }
+                  />
+                )
+              )}
+
+            </div>
+          )}
+
+        </main>
+      )}
+
+      {/* =========================
+          HISTORY
+      ========================= */}
+
+      {page === "history" && (
+        <main className="page">
+
+          <div className="history-title page-title">
+
+            <div>
+              <span className="section-kicker">
+                YOUR ACTIVITY
+              </span>
+
+              <h1>
+                Comparison
+                <br />
+                <span>History.</span>
+              </h1>
+
+              <p>
+                Your previous product
+                comparisons.
+              </p>
+            </div>
 
             {history.length > 0 && (
               <button
-                className="secondary-button"
+                className="danger-button"
                 onClick={clearHistory}
               >
                 Clear History
               </button>
             )}
-          </section>
 
-          <div className="history-list">
-            {history.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-icon">
-                  🕘
-                </div>
+          </div>
 
-                <h3>
-                  No history yet
-                </h3>
+          {history.length === 0 ? (
+            <div className="empty-card large-empty">
 
-                <p>
-                  Your comparisons will
-                  appear here.
-                </p>
+              <div className="empty-icon">
+                ◷
               </div>
-            ) : (
-              history.map(
+
+              <h3>
+                No comparison history
+              </h3>
+
+              <p>
+                Your product comparisons will
+                appear here automatically.
+              </p>
+
+              <button
+                className="primary-button"
+                onClick={() =>
+                  setPage("compare")
+                }
+              >
+                Start Comparing →
+              </button>
+
+            </div>
+          ) : (
+            <div className="history-list">
+
+              {history.map(
                 (item, index) => (
                   <div
-                    className="history-card"
+                    className="history-item"
                     key={
                       item.id || index
                     }
                   >
-                    <div className="history-icon">
-                      📊
+
+                    <div className="history-index">
+                      {String(
+                        index + 1
+                      ).padStart(2, "0")}
                     </div>
 
-                    <div>
+                    <div className="history-main">
+
                       <strong>
-                        {getHistoryNames(
-                          item
-                        )}
+                        {historyNames(item)}
                       </strong>
 
                       <span>
                         {item.created_at ||
                           "Saved comparison"}
                       </span>
+
                     </div>
+
+                    <div className="history-status">
+                      ✓ Compared
+                    </div>
+
                   </div>
                 )
-              )
-            )}
-          </div>
-        </main>
-      )}
+              )}
 
-      {/* SAVED */}
+            </div>
+          )}
 
-      {page === "saved" && (
-        <main className="collection-page">
-          <section className="page-heading">
-            <span className="section-kicker">
-              YOUR COLLECTION
-            </span>
-
-            <h2>
-              Saved
-              <span> Products</span>
-            </h2>
-
-            <p>
-              Products you saved for
-              later.
-            </p>
-          </section>
-
-          <div className="collection-grid">
-            {savedProducts.length ===
-            0 ? (
-              <div className="empty-state">
-                <div className="empty-icon">
-                  ♡
-                </div>
-
-                <h3>
-                  No saved products
-                </h3>
-
-                <p>
-                  Save products from a
-                  comparison to see them
-                  here.
-                </p>
-              </div>
-            ) : (
-              savedProducts.map(
-                (item, index) => (
-                  <CollectionCard
-                    key={
-                      item.id || index
-                    }
-                    item={item}
-                    onDelete={() =>
-                      deleteSavedProduct(
-                        item.id
-                      )
-                    }
-                  />
-                )
-              )
-            )}
-          </div>
-        </main>
-      )}
-
-      {/* LIKED */}
-
-      {page === "liked" && (
-        <main className="collection-page">
-          <section className="page-heading">
-            <span className="section-kicker">
-              YOUR FAVOURITES
-            </span>
-
-            <h2>
-              Liked
-              <span> Products</span>
-            </h2>
-
-            <p>
-              Products you liked while
-              comparing.
-            </p>
-          </section>
-
-          <div className="collection-grid">
-            {likedProducts.length ===
-            0 ? (
-              <div className="empty-state">
-                <div className="empty-icon">
-                  ♥
-                </div>
-
-                <h3>
-                  No liked products
-                </h3>
-
-                <p>
-                  Like products from a
-                  comparison to see them
-                  here.
-                </p>
-              </div>
-            ) : (
-              likedProducts.map(
-                (item, index) => (
-                  <CollectionCard
-                    key={
-                      item.id || index
-                    }
-                    item={item}
-                    onDelete={() =>
-                      deleteLikedProduct(
-                        item.id
-                      )
-                    }
-                  />
-                )
-              )
-            )}
-          </div>
         </main>
       )}
 
       {/* FOOTER */}
 
-      <footer className="app-footer">
+      <footer className="footer">
+
         <div>
           <strong>
-            AI Product Comparison
-            Assistant
+            ProductIQ
           </strong>
 
           <span>
-            Smart comparison powered by
-            AI.
+            AI Product Comparison Assistant
           </span>
         </div>
 
-        <span>
+        <p>
           B.Sc. Artificial Intelligence
-        </span>
+        </p>
+
       </footer>
+
     </div>
   );
 }

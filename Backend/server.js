@@ -1439,9 +1439,7 @@ app.post(
         req.body;
 
       const result =
-        saveProduct(
-          JSON.stringify(product)
-        );
+        saveProduct(product);
 
       res.json({
         success: true,
@@ -1518,9 +1516,7 @@ app.post(
         req.body;
 
       const result =
-        saveLikedProduct(
-          JSON.stringify(product)
-        );
+        saveLikedProduct(product);
 
       res.json({
         success: true,
@@ -1583,7 +1579,6 @@ app.delete(
     }
   }
 );
-
 /* =========================================================
    404
    ========================================================= */

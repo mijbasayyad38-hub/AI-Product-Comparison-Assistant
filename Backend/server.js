@@ -1159,13 +1159,9 @@ app.post(
 
       try {
         saveHistory(
-          JSON.stringify(
-            productData
-          ),
-          JSON.stringify(
-            finalResult
-          )
-        );
+  productData,
+  finalResult
+);
       } catch (error) {
         console.log(
           "History save warning:",

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+ import React, { useEffect, useState } from "react";
 import "./App.css";
 
 const API =
@@ -94,38 +94,34 @@ const normalizeProduct = (product = {}) => {
     specifications:
       parseData(product.specifications) || {},
     scores: parseData(product.scores) || {},
-  };
+    
+const displayValue = (value) => {
+  if (value === null || value === undefined || value === "") {
+    return "Not available";
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) return value.map((item) => displayValue(item)).join(", ");
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .map(([key, item]) => `${key}: ${displayValue(item)}`)
+      .join(" · ");
+  }
+  return String(value);
 };
 
-async function request(url, options = {}) {
-  const response = await fetch(`${API}${url}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
-
-  const text = await response.text();
-
-  let data = {};
-
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error("Server returned invalid data.");
+const getSpecificationEntries = (product) => {
+  const parsed = parseData(product?.specifications);
+  if (Array.isArray(parsed)) {
+    return parsed.reduce((acc, item) => {
+      if (item && typeof item === "object") {
+        const key = item.name || item.key || item.label;
+        if (key) acc[String(key)] = item.value ?? item.details ?? item.specification;
+      }
+      return acc;
+    }, {});
   }
-
-  if (!response.ok) {
-    throw new Error(
-      data.message ||
-        data.error ||
-        `Request failed: ${response.status}`
-    );
-  }
-
-  return data;
-}
+  return parsed && typeof parsed === "object" ? parsed : {};
+};
 
 function ProductCard({
   product,
@@ -172,29 +168,7 @@ function ProductCard({
             ★ {p.rating ? p.rating.toFixed(1) : "N/A"}
           </span>
         </div>
-
-        <div className="availability">
-          <span />
-          {p.availability}
-        </div>
-
-        <div className="product-actions">
-          <button
-            onClick={() => onSave(p)}
-            className="save-btn"
-          >
-            ♡ Save
-          </button>
-
-          <button
-            onClick={() => onLike(p)}
-            className="like-btn"
-          >
-            ♥ Like
-          </button>
-        </div>
-      </div>
-    </article>
+            </article>
   );
 }
 
@@ -251,8 +225,6 @@ export default function App() {
 
   const [url1, setUrl1] = useState("");
   const [url2, setUrl2] = useState("");
-  const [requirement, setRequirement] =
-    useState("");
 
   const [result, setResult] = useState(null);
   const [history, setHistory] = useState([]);
@@ -290,41 +262,6 @@ export default function App() {
     ]);
   }
 
-  async function loadHistory() {
-    try {
-      const data =
-        await request("/api/history");
-
-      setHistory(
-        Array.isArray(data)
-          ? data
-          : data.history || []
-      );
-    } catch (error) {
-      console.log(error.message);
-    }
-  }
-
-  async function loadSaved() {
-    try {
-      const data =
-        await request("/api/saved");
-
-      setSaved(
-        Array.isArray(data)
-          ? data
-          : data.products || []
-      );
-    } catch (error) {
-      console.log(error.message);
-    }
-  }
-
-  async function loadLiked() {
-    try {
-      const data =
-        await request("/api/liked");
-
       setLiked(
         Array.isArray(data)
           ? data
@@ -357,8 +294,7 @@ export default function App() {
               url1.trim(),
               url2.trim(),
             ],
-            requirement:
-              requirement.trim(),
+            requirement: "",
           }),
         }
       );
@@ -414,77 +350,6 @@ export default function App() {
       await request(`/api/saved/${id}`, {
         method: "DELETE",
       });
-
-      await loadSaved();
-    } catch (error) {
-      setMessage(error.message);
-    }
-  }
-
-  async function deleteLiked(id) {
-    try {
-      await request(`/api/liked/${id}`, {
-        method: "DELETE",
-      });
-
-      await loadLiked();
-    } catch (error) {
-      setMessage(error.message);
-    }
-  }
-
-  async function clearHistory() {
-    try {
-      await request("/api/history", {
-        method: "DELETE",
-      });
-
-      setHistory([]);
-    } catch (error) {
-      setMessage(error.message);
-    }
-  }
-
-  function historyTitle(item) {
-    let products =
-      parseData(item?.products);
-
-    if (typeof products === "string") {
-      products = parseData(products);
-    }
-
-    if (!Array.isArray(products)) {
-      return "Product Comparison";
-    }
-
-    return products
-      .map((product) =>
-        normalizeProduct(product).name
-      )
-      .join("  VS  ");
-  }
-
-  const products =
-    result?.products ||
-    result?.comparison?.products ||
-    [];
-
-  const best =
-    result?.bestProduct ||
-    result?.comparison?.bestProduct ||
-    {};
-
-  const recommendation =
-    result?.recommendation ||
-    result?.ai?.recommendation ||
-    result?.ai?.summary ||
-    "Comparison completed successfully.";
-
-  return (
-    <div className="app-shell">
-
-      {/* NAVBAR */}
-
       <header className="main-navbar">
         <button
           className="logo-area"
@@ -570,49 +435,6 @@ export default function App() {
             History
           </button>
         </nav>
-
-        <button
-          className="theme-toggle"
-          onClick={() => setDark(!dark)}
-        >
-          {dark ? "☀" : "☾"}
-        </button>
-      </header>
-
-      {/* MESSAGE */}
-
-      {message && (
-        <div className="message-bar">
-          <span>{message}</span>
-          <button
-            onClick={() => setMessage("")}
-          >
-            ×
-          </button>
-        </div>
-      )}
-
-      {/* DASHBOARD */}
-
-      {page === "dashboard" && (
-        <main>
-
-          <section className="hero-section">
-            <div className="hero-left">
-
-              <div className="hero-tag">
-                ✦ AI POWERED
-              </div>
-
-              <h1>
-                Compare smarter.
-                <br />
-                <span>Choose better.</span>
-              </h1>
-
-              <p>
-                Compare products from Amazon
-                and Flipkart using price,
                 specifications, ratings and
                 AI-powered recommendations.
               </p>
@@ -702,13 +524,6 @@ export default function App() {
                   AI recommends the best value
                 </div>
               </div>
-
-              <div className="floating-card price-float">
-                <b>₹</b>
-                <span>
-                  Best Price
-                  <strong>Found</strong>
-                </span>
               </div>
 
               <div className="floating-card rating-float">
@@ -784,8 +599,7 @@ export default function App() {
           </section>
         </main>
       )}
-
-      {/* COMPARE */}
+  {/* COMPARE */}
 
       {page === "compare" && (
         <main className="content-page">
@@ -842,82 +656,7 @@ export default function App() {
                   />
                 </div>
               </div>
-
-              <div className="vs">
-                VS
-              </div>
-
-              <div className="url-box">
-                <label>
-                  PRODUCT 02
-                </label>
-
-                <div className="url-input">
-                  <span className="flipkart">
-                    F
-                  </span>
-
-                  <input
-                    value={url2}
-                    onChange={(e) =>
-                      setUrl2(e.target.value)
-                    }
-                    placeholder="Paste Amazon / Flipkart URL"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="requirement-box-new">
-              <label>
-                YOUR REQUIREMENT
-              </label>
-
-              <input
-                value={requirement}
-                onChange={(e) =>
-                  setRequirement(
-                    e.target.value
-                  )
-                }
-                placeholder="Example: Best laptop for coding and AI/ML"
-              />
-            </div>
-
-            <button
-              className="compare-main-btn"
-              onClick={compare}
-              disabled={loading}
-            >
-              {loading
-                ? "Analyzing..."
-                : "Compare Products"}
-              <span>→</span>
-            </button>
-          </section>
-
-          {loading && (
-            <div className="loading-box">
-              <div className="loader">
-                ✦
-              </div>
-              <h2>
-                Analyzing products...
-              </h2>
-              <p>
-                Extracting product details
-                and calculating the best value.
-              </p>
-            </div>
-          )}
-
-          {!loading && result && (
-            <section className="results-section">
-
-              <div className="results-heading">
-                <div>
-                  <span>
-                    ANALYSIS COMPLETE
+                                  ANALYSIS COMPLETE
                   </span>
 
                   <h2>
@@ -994,57 +733,72 @@ export default function App() {
                   </strong>
                 </div>
 
-                <div>
-                  <span>
-                    PRICE DIFFERENCE
-                  </span>
-                  <strong>
-                    {money(
-                      result?.priceDifference
-                    )}
-                  </strong>
+              <section className="comparison-table-section" aria-labelledby="comparison-table-title">
+                <div className="products-heading">
+                  <div>
+                    <span>SPECIFICATION BREAKDOWN</span>
+                    <h2 id="comparison-table-title">Comparison Table</h2>
+                  </div>
                 </div>
-
-                <div>
-                  <span>
-                    PRODUCTS
-                  </span>
-                  <strong>
-                    {products.length}
-                  </strong>
-                </div>
-
-              </div>
-
-              <div className="products-heading">
-                <div>
-                  <span>
-                    SIDE BY SIDE
-                  </span>
-                  <h2>
-                    Product Details
-                  </h2>
-                </div>
-              </div>
-
-              <div className="product-grid-new">
-                {products.map(
-                  (product, index) => (
-                    <ProductCard
-                      key={index}
-                      product={product}
-                      best={
-                        clean(
-                          product.name
-                        ) ===
-                        clean(best.name)
-                      }
-                      onSave={saveProduct}
-                      onLike={likeProduct}
-                    />
-                  )
+                {products.length < 2 ? (
+                  <div className="comparison-table-empty">
+                    Product specifications could not be displayed because the server returned fewer than two products.
+                  </div>
+                ) : (
+                  <div className="comparison-table-wrap">
+                    <table className="comparison-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Feature</th>
+                          {products.map((product, index) => (
+                            <th scope="col" key={`table-head-${index}`}>
+                              {normalizeProduct(product).name}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { label: "Brand", get: (p) => p.brand },
+                          { label: "Store / Platform", get: (p) => p.platform || p.store },
+                          { label: "Price", get: (p) => p.price ? money(p.price) : "Not available" },
+                          { label: "Rating", get: (p) => p.rating ? `★ ${p.rating}` : "Not available" },
+                          { label: "Availability", get: (p) => p.availability },
+                          ...Array.from(
+                            new Set(
+                              products.flatMap((product) =>
+                                Object.keys(getSpecificationEntries(product))
+                              )
+                            )
+                          ).sort((a, b) => a.localeCompare(b)).map((key) => ({
+                            label: key.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
+                            get: (p) => getSpecificationEntries(p)[key]
+                          }))
+                        ].map((row, rowIndex) => (
+                          <tr key={`table-row-${rowIndex}`}>
+                            <th scope="row">{row.label}</th>
+                            {products.map((product, productIndex) => {
+                              const normalized = normalizeProduct(product);
+                              const raw = row.get(product);
+                              const value = row.label === "Brand" ? normalized.brand
+                                : row.label === "Store / Platform" ? normalized.platform
+                                : row.label === "Price" ? (normalized.price ? money(normalized.price) : "Not available")
+                                : row.label === "Rating" ? (normalized.rating ? `★ ${normalized.rating}` : "Not available")
+                                : row.label === "Availability" ? normalized.availability
+                                : raw;
+                              return (
+                                <td key={`table-cell-${rowIndex}-${productIndex}`}>
+                                  {displayValue(value)}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
-              </div>
+              </section>
 
               <div className="recommendation-box">
                 <div className="recommendation-icon">
@@ -1068,12 +822,183 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="scoring-box">
-                <div>
-                  <span>PRICE</span>
-                  <strong>25%</strong>
+              <section className="comparison-table-section" aria-labelledby="comparison-table-title">
+                <div className="products-heading">
+                  <div>
+                    <span>SPECIFICATION BREAKDOWN</span>
+                    <h2 id="comparison-table-title">Comparison Table</h2>
+                  </div>
+                </div>
+                {products.length < 2 ? (
+                  <div className="comparison-table-empty">
+                    Product specifications could not be displayed because the server returned fewer than two products.
+                  </div>
+                ) : (
+                  <div className="comparison-table-wrap">
+                    <table className="comparison-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Feature</th>
+                          {products.map((product, index) => (
+                            <th scope="col" key={`table-head-${index}`}>
+                              {normalizeProduct(product).name}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { label: "Brand", get: (p) => p.brand },
+                          { label: "Store / Platform", get: (p) => p.platform || p.store },
+                          { label: "Price", get: (p) => p.price ? money(p.price) : "Not available" },
+                          { label: "Rating", get: (p) => p.rating ? `★ ${p.rating}` : "Not available" },
+                          { label: "Availability", get: (p) => p.availability },
+                          ...Array.from(
+                            new Set(
+                              products.flatMap((product) =>
+                                Object.keys(getSpecificationEntries(product))
+                              )
+                            )
+                          ).sort((a, b) => a.localeCompare(b)).map((key) => ({
+                            label: key.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
+                            get: (p) => getSpecificationEntries(p)[key]
+                          }))
+                        ].map((row, rowIndex) => (
+                          <tr key={`table-row-${rowIndex}`}>
+                            <th scope="row">{row.label}</th>
+                            {products.map((product, productIndex) => {
+                              const normalized = normalizeProduct(product);
+                              const raw = row.get(product);
+                              const value = row.label === "Brand" ? normalized.brand
+                                : row.label === "Store / Platform" ? normalized.platform
+                                : row.label === "Price" ? (normalized.price ? money(normalized.price) : "Not available")
+                                : row.label === "Rating" ? (normalized.rating ? `★ ${normalized.rating}` : "Not available")
+                                : row.label === "Availability" ? normalized.availability
+                                : raw;
+                              return (
+                                <td key={`table-cell-${rowIndex}-${productIndex}`}>
+                                  {displayValue(value)}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
+              <div className="recommendation-box">
+                <div className="recommendation-icon">
+                  ✦
                 </div>
 
+                <div>
+                  <span>
+                    AI RECOMMENDATION
+                  </span>
+
+                  <h3>
+                    What should you choose?
+                  </h3>
+
+                  <p>
+                    {clean(
+                      recommendation
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <section className="comparison-table-section" aria-labelledby="comparison-table-title">
+                <div className="products-heading">
+                  <div>
+                    <span>SPECIFICATION BREAKDOWN</span>
+                    <h2 id="comparison-table-title">Comparison Table</h2>
+                  </div>
+                </div>
+                {products.length < 2 ? (
+                  <div className="comparison-table-empty">
+                    Product specifications could not be displayed because the server returned fewer than two products.
+                  </div>
+                ) : (
+                  <div className="comparison-table-wrap">
+                    <table className="comparison-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Feature</th>
+                          {products.map((product, index) => (
+                            <th scope="col" key={`table-head-${index}`}>
+                              {normalizeProduct(product).name}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { label: "Brand", get: (p) => p.brand },
+                          { label: "Store / Platform", get: (p) => p.platform || p.store },
+                          { label: "Price", get: (p) => p.price ? money(p.price) : "Not available" },
+                          { label: "Rating", get: (p) => p.rating ? `★ ${p.rating}` : "Not available" },
+                          { label: "Availability", get: (p) => p.availability },
+                          ...Array.from(
+                            new Set(
+                              products.flatMap((product) =>
+                                Object.keys(getSpecificationEntries(product))
+                              )
+                            )
+                          ).sort((a, b) => a.localeCompare(b)).map((key) => ({
+                            label: key.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
+                            get: (p) => getSpecificationEntries(p)[key]
+                          }))
+                        ].map((row, rowIndex) => (
+                          <tr key={`table-row-${rowIndex}`}>
+                            <th scope="row">{row.label}</th>
+                            {products.map((product, productIndex) => {
+                              const normalized = normalizeProduct(product);
+                              const raw = row.get(product);
+                              const value = row.label === "Brand" ? normalized.brand
+                                : row.label === "Store / Platform" ? normalized.platform
+                                : row.label === "Price" ? (normalized.price ? money(normalized.price) : "Not available")
+                                : row.label === "Rating" ? (normalized.rating ? `★ ${normalized.rating}` : "Not available")
+                                : row.label === "Availability" ? normalized.availability
+                                : raw;
+                              return (
+                                <td key={`table-cell-${rowIndex}-${productIndex}`}>
+                                  {displayValue(value)}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
+              <div className="recommendation-box">
+                <div className="recommendation-icon">
+                  ✦
+                </div>
+
+                <div>
+                  <span>
+                    AI RECOMMENDATION
+                  </span>
+
+                  <h3>
+                    What should you choose?
+                  </h3>
+
+                  <p>
+                    {clean(
+                      recommendation
+                    )}
+                  </p>
+                </div>
+              </div>
                 <div>
                   <span>SPECIFICATIONS</span>
                   <strong>40%</strong>
@@ -1151,25 +1076,6 @@ export default function App() {
           )}
         </main>
       )}
-
-      {/* LIKED */}
-
-      {page === "liked" && (
-        <main className="content-page">
-
-          <div className="page-heading">
-            <span>LIKED PRODUCTS</span>
-            <h1>
-              Your favourite
-              <br />
-              <strong>products.</strong>
-            </h1>
-            <p>
-              Products you liked while
-              comparing.
-            </p>
-          </div>
-
           {liked.length === 0 ? (
             <div className="empty-state">
               <div>♥</div>
@@ -1252,7 +1158,7 @@ export default function App() {
                   setPage("compare")
                 }
               >
-                Start Comparing →
+                 Start Comparing →
               </button>
             </div>
           ) : (

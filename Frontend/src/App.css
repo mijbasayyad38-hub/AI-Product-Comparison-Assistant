@@ -2212,4 +2212,308 @@ body.dark .product-image-box img {
     width: 29px;
     height: 29px;
   }
+   /* =========================================================
+   PRODUCTIQ FIX: PRODUCT IMAGE / TEXT OVERLAP
+   Add this block at the END of App.css
+========================================================= */
+
+/* Prevent grid children from overflowing their columns */
+.product-grid-new {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 20px;
+  width: 100%;
+}
+
+.product-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: auto;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Keep the image in a separate, fixed-height region */
+.product-image-box {
+  position: relative;
+  display: flex;
+  flex: 0 0 235px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 235px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 16px;
+}
+
+/* Keep product images inside their container */
+.product-image-box img {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: center;
+  mix-blend-mode: multiply;
+}
+
+/* Dark mode image handling */
+body.dark .product-image-box img {
+  mix-blend-mode: normal;
+}
+
+/* Badge remains over the image intentionally */
+.best-label {
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Product information must flow BELOW the image */
+.product-card-body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  height: auto;
+  padding: 18px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+/* Store and brand labels */
+.product-store {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  line-height: 1.5;
+}
+
+.product-store span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Long product names should wrap naturally */
+.product-card-body h3 {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  margin-top: 12px;
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  white-space: normal;
+}
+
+/* Price and rating must not force horizontal overflow */
+.product-price-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 14px;
+}
+
+.product-price-row strong {
+  min-width: 0;
+  font-size: 22px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.rating {
+  flex-shrink: 0;
+}
+
+/* Keep availability text from overflowing */
+.availability {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.availability span {
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+
+/* Keep buttons in the product card */
+.product-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+.save-btn,
+.like-btn {
+  min-width: 0;
+  padding: 9px 6px;
+  white-space: normal;
+}
+
+/* =========================================================
+   RECOMMENDATION TEXT FIX
+========================================================= */
+
+.recommendation-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+  height: auto;
+  overflow: hidden;
+}
+
+.recommendation-icon {
+  flex: 0 0 45px;
+}
+
+.recommendation-box > div:last-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.recommendation-box h3 {
+  font-size: 17px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.recommendation-box p {
+  max-width: 100%;
+  font-size: 12px;
+  line-height: 1.8;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+/* =========================================================
+   RESPONSIVE FIXES
+========================================================= */
+
+@media (max-width: 720px) {
+  .product-grid-new {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .product-image-box {
+    flex-basis: 220px;
+    height: 220px;
+  }
+
+  .product-card-body {
+    padding: 16px;
+  }
+
+  .recommendation-box {
+    gap: 12px;
+    padding: 18px;
+  }
+}
+
+@media (max-width: 430px) {
+  .product-image-box {
+    flex-basis: 200px;
+    height: 200px;
+  }
+
+  .product-price-row strong {
+    font-size: 20px;
+  }
+
+  .recommendation-icon {
+    flex-basis: 36px;
+    width: 36px;
+    height: 36px;
+  }
+
+  .recommendation-box p {
+    font-size: 12px;
+    line-height: 1.7;
+  }
+}
+
+2. Make one small improvement to App.tsx
+
+Your current JSX does not display p.specifications in the product card. If your API returns product specifications, they aren't currently rendered as a separate section.
+
+Find this section inside ProductCard:
+jsx
+
+<h3>{p.name}</h3>
+
+<div className="product-price-row">
+
+Replace it with:
+jsx
+
+
+<h3>{p.name}</h3>
+
+{p.specifications &&
+  Object.keys(p.specifications).length > 0 && (
+    <ul className="product-specifications">
+      {Object.entries(p.specifications)
+        .slice(0, 5)
+        .map(([key, value]) => (
+          <li key={key}>
+            <strong>{clean(key)}:</strong>{" "}
+            {clean(
+              typeof value === "object"
+                ? JSON.stringify(value)
+                : value
+            )}
+          </li>
+        ))}
+    </ul>
+  )}
+
+<div className="product-price-row">
+```
+
+Then add these styles at the end of `App.css`:
+
+<CodeBlock language="css" editable>
+.product-specifications {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.product-specifications li {
+  padding-left: 2px;
+}
+
+.product-specifications strong {
+  color: var(--text);
+  font-weight: 600;
+}
 }

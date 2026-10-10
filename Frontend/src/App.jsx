@@ -1,4 +1,4 @@
- import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import "./App.css";
 
 const API =
@@ -94,34 +94,82 @@ const normalizeProduct = (product = {}) => {
     specifications:
       parseData(product.specifications) || {},
     scores: parseData(product.scores) || {},
-    
+  };
+};
+
 const displayValue = (value) => {
   if (value === null || value === undefined || value === "") {
     return "Not available";
   }
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (Array.isArray(value)) return value.map((item) => displayValue(item)).join(", ");
+
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => displayValue(item))
+      .join(", ");
+  }
+
   if (typeof value === "object") {
     return Object.entries(value)
       .map(([key, item]) => `${key}: ${displayValue(item)}`)
       .join(" · ");
   }
+
   return String(value);
 };
 
 const getSpecificationEntries = (product) => {
   const parsed = parseData(product?.specifications);
+
   if (Array.isArray(parsed)) {
     return parsed.reduce((acc, item) => {
       if (item && typeof item === "object") {
-        const key = item.name || item.key || item.label;
-        if (key) acc[String(key)] = item.value ?? item.details ?? item.specification;
+        const key =
+          item.name ||
+          item.key ||
+          item.label;
+
+        if (key) {
+          acc[String(key)] =
+            item.value ||
+            item.details ||
+            item.specification;
+        }
       }
+
       return acc;
     }, {});
   }
-  return parsed && typeof parsed === "object" ? parsed : {};
+
+  return parsed && typeof parsed === "object"
+    ? parsed
+    : {};
 };
+
+async function request(path, options = {}) {
+  const response = await fetch(`${API}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+    },
+    ...options,
+  });
+
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
+
+  if (!response.ok) {
+    throw new Error(
+      data.error ||
+        data.message ||
+        `Request failed: ${response.status}`
+    );
+  }
+
+  return data;
+}
 
 function ProductCard({
   product,
@@ -168,7 +216,24 @@ function ProductCard({
             ★ {p.rating ? p.rating.toFixed(1) : "N/A"}
           </span>
         </div>
-            </article>
+
+        <div className="product-actions">
+          <button
+            className="outline-btn"
+            onClick={() => onSave(product)}
+          >
+            Save
+          </button>
+
+          <button
+            className="outline-btn"
+            onClick={() => onLike(product)}
+          >
+            Like
+          </button>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -201,6 +266,7 @@ function CollectionCard({
 
         <div className="collection-price">
           {money(product.price)}
+
           <span>
             ★ {product.rating || "N/A"}
           </span>
@@ -216,6 +282,273 @@ function CollectionCard({
         </button>
       )}
     </article>
+  );
+}
+
+const pickProducts = (result) => {
+  const candidates = [
+    result,
+    result?.products,
+    result?.items,
+    result?.comparedProducts,
+    result?.results,
+    result?.data?.products,
+    result?.comparison?.products,
+  ];
+
+  for (const candidate of candidates) {
+    const list = parseData(candidate);
+
+    if (Array.isArray(list) && list.length && typeof list[0] !== "undefined") {
+      const looksLikeProducts = list.every(
+        (item) => parseData(item) && typeof parseData(item) === "object"
+      );
+
+      if (looksLikeProducts) {
+        return list;
+      }
+    }
+  }
+
+  return [];
+};
+
+const pickDetails = (result) => {
+  const source = parseData(
+    result?.comparisonTable ??
+      result?.comparison_table ??
+      result?.comparisonDetails ??
+      result?.comparison_details ??
+      result?.table ??
+      (Array.isArray(result?.comparison) ? result.comparison : undefined)
+  );
+
+  const rows = [];
+
+  if (Array.isArray(source)) {
+    source.forEach((item) => {
+      item = parseData(item);
+
+      if (!item || typeof item !== "object") return;
+
+      const labelKey = ["feature", "name", "label", "attribute", "key", "title"].find(
+        (k) => item[k]
+      );
+
+      if (!labelKey) return;
+
+      const values = Array.isArray(item.values)
+        ? item.values
+        : Object.entries(item)
+            .filter(([k]) => k !== labelKey)
+            .map(([, v]) => v);
+
+      rows.push({ label: String(item[labelKey]), values });
+    });
+  } else if (source && typeof source === "object") {
+    Object.entries(source).forEach(([label, value]) => {
+      if (Array.isArray(value)) {
+        rows.push({ label, values: value });
+      } else if (value && typeof value === "object") {
+        rows.push({ label, values: Object.values(value) });
+      }
+    });
+  }
+
+  return rows;
+};
+
+const readSpecs = (product) => {
+  const toObject = (input) => {
+    const parsed = parseData(input);
+
+    if (!parsed) return {};
+
+    if (typeof parsed === "string") {
+      return toObject(
+        parsed.split(/\n|;/).map((l) => l.trim()).filter(Boolean)
+      );
+    }
+
+    if (Array.isArray(parsed)) {
+      return parsed.reduce((acc, item, index) => {
+        if (Array.isArray(item) && item.length >= 2) {
+          acc[String(item[0])] = item[1];
+        } else if (item && typeof item === "object") {
+          const key =
+            item.name || item.key || item.label || item.title || item.attribute;
+          const val =
+            item.value ?? item.details ?? item.specification ?? item.description;
+
+          if (key) acc[String(key)] = val;
+        } else if (typeof item === "string") {
+          const i = item.indexOf(":");
+
+          if (i > 0) acc[item.slice(0, i).trim()] = item.slice(i + 1).trim();
+          else acc[`Feature ${index + 1}`] = item;
+        }
+
+        return acc;
+      }, {});
+    }
+
+    return typeof parsed === "object" ? parsed : {};
+  };
+
+  return toObject(
+    product?.specifications ??
+      product?.specs ??
+      product?.details ??
+      product?.features ??
+      product?.technicalDetails ??
+      product?.technical_details
+  );
+};
+
+function ComparisonTable({ products, details = [], onSave, onLike }) {
+  const grid = "1px solid rgba(120, 120, 160, 0.45)";
+
+  const cellStyle = {
+    border: grid,
+    padding: "12px 16px",
+    textAlign: "left",
+    verticalAlign: "top",
+    fontSize: 14,
+  };
+
+  const headStyle = {
+    ...cellStyle,
+    background: "rgba(91, 75, 216, 0.12)",
+    fontWeight: 700,
+    minWidth: 180,
+  };
+
+  const rowHeadStyle = {
+    ...cellStyle,
+    background: "rgba(91, 75, 216, 0.06)",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  };
+
+  const items = products.map((p) => ({
+    ...normalizeProduct(p),
+    specs: readSpecs(typeof p === "string" ? parseData(p) : p),
+  }));
+
+  const lowerMaps = items.map((p) =>
+    Object.fromEntries(
+      Object.entries(p.specs).map(([k, v]) => [k.trim().toLowerCase(), v])
+    )
+  );
+
+  const labels = {};
+
+  items.forEach((p) =>
+    Object.keys(p.specs).forEach((k) => {
+      const id = k.trim().toLowerCase();
+
+      if (!labels[id]) {
+        labels[id] = k
+          .replace(/[_-]+/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+      }
+    })
+  );
+
+  const specIds = Object.keys(labels).sort((a, b) =>
+    labels[a].localeCompare(labels[b])
+  );
+
+  const rows = [
+    { label: "Brand", get: (p) => p.brand },
+    { label: "Store / Platform", get: (p) => p.platform },
+    { label: "Price", get: (p) => money(p.price) },
+    {
+      label: "Rating",
+      get: (p) => (p.rating ? `★ ${p.rating.toFixed(1)}` : "Not available"),
+    },
+    { label: "Availability", get: (p) => p.availability },
+    ...specIds.map((id) => ({
+      label: labels[id],
+      get: (p, i) => lowerMaps[i][id],
+    })),
+  ];
+
+  const known = new Set(rows.map((r) => r.label.trim().toLowerCase()));
+
+  details.forEach((d) => {
+    if (known.has(d.label.trim().toLowerCase())) return;
+
+    rows.push({
+      label: d.label,
+      get: (p, i) => d.values[i],
+    });
+  });
+
+  return (
+    <div className="comparison-table-wrap" style={{ width: "100%", overflowX: "auto" }}>
+      <table
+        className="comparison-table"
+        style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}
+      >
+        <thead>
+          <tr>
+            <th scope="col" style={headStyle}>Feature</th>
+
+            {items.map((p, i) => (
+              <th scope="col" key={`head-${i}`} style={headStyle}>
+                <img
+                  src={p.image}
+                  alt={p.name}
+                  onError={(e) => {
+                    e.currentTarget.src = FALLBACK;
+                  }}
+                  style={{
+                    width: 140,
+                    height: 105,
+                    objectFit: "contain",
+                    display: "block",
+                    marginBottom: 8,
+                  }}
+                />
+
+                {p.name}
+              </th>
+            ))}
+          </tr>
+        </thead>
+
+        <tbody>
+          {rows.map((row, r) => (
+            <tr key={`row-${r}`}>
+              <th scope="row" style={rowHeadStyle}>{row.label}</th>
+
+              {items.map((p, i) => (
+                <td key={`cell-${r}-${i}`} style={cellStyle}>{displayValue(row.get(p, i))}</td>
+              ))}
+            </tr>
+          ))}
+
+          <tr>
+            <th scope="row" style={rowHeadStyle}>Actions</th>
+
+            {products.map((product, i) => (
+              <td key={`actions-${i}`} style={cellStyle}>
+                <div className="product-actions">
+                  <button className="outline-btn" onClick={() => onSave(product)}>
+                    Save
+                  </button>
+
+                  <button className="outline-btn" onClick={() => onLike(product)}>
+                    Like
+                  </button>
+                </div>
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -262,6 +595,38 @@ export default function App() {
     ]);
   }
 
+  async function loadHistory() {
+    try {
+      const data = await request("/api/history");
+
+      setHistory(
+        Array.isArray(data)
+          ? data
+          : data.history || []
+      );
+    } catch (error) {
+      console.log(error.message);
+    }
+  }
+
+  async function loadSaved() {
+    try {
+      const data = await request("/api/saved");
+
+      setSaved(
+        Array.isArray(data)
+          ? data
+          : data.products || []
+      );
+    } catch (error) {
+      console.log(error.message);
+    }
+  }
+
+  async function loadLiked() {
+    try {
+      const data = await request("/api/liked");
+
       setLiked(
         Array.isArray(data)
           ? data
@@ -279,6 +644,7 @@ export default function App() {
       setMessage(
         "Please enter both product URLs."
       );
+
       return;
     }
 
@@ -299,10 +665,14 @@ export default function App() {
         }
       );
 
+      const body = data.comparison || data.result;
+
       setResult(
-        data.comparison ||
-          data.result ||
-          data
+        body &&
+          typeof body === "object" &&
+          !Array.isArray(body)
+          ? { ...data, ...body }
+          : data
       );
 
       await loadHistory();
@@ -350,6 +720,70 @@ export default function App() {
       await request(`/api/saved/${id}`, {
         method: "DELETE",
       });
+
+      await loadSaved();
+      setMessage("Saved product removed.");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  async function deleteLiked(id) {
+    try {
+      await request(`/api/liked/${id}`, {
+        method: "DELETE",
+      });
+
+      await loadLiked();
+      setMessage("Liked product removed.");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  async function clearHistory() {
+    try {
+      await request("/api/history", {
+        method: "DELETE",
+      });
+
+      await loadHistory();
+      setMessage("History cleared.");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  function historyTitle(item) {
+    const products = item?.products || [];
+
+    if (products.length >= 2) {
+      const first = normalizeProduct(products[0]).name;
+      const second = normalizeProduct(products[1]).name;
+
+      return `${first} vs ${second}`;
+    }
+
+    return "Product comparison";
+  }
+
+  const products = pickProducts(result);
+  const details = pickDetails(result);
+
+  const best =
+    result?.bestProduct ||
+    result?.recommendedProduct ||
+    products[0] ||
+    {};
+
+  const recommendation =
+    result?.recommendation ||
+    result?.aiRecommendation ||
+    result?.summary ||
+    "";
+
+  return (
+    <div className="app">
       <header className="main-navbar">
         <button
           className="logo-area"
@@ -363,6 +797,7 @@ export default function App() {
 
           <span className="logo-text">
             <strong>ProductIQ</strong>
+
             <small>
               AI Product Comparison
             </small>
@@ -435,8 +870,36 @@ export default function App() {
             History
           </button>
         </nav>
-                specifications, ratings and
-                AI-powered recommendations.
+      </header>
+
+      {message && (
+        <div className="app-message">
+          {message}
+        </div>
+      )}
+
+      {/* DASHBOARD */}
+
+      {page === "dashboard" && (
+        <main>
+          <section className="hero-section">
+            <div className="hero-left">
+              <span className="hero-tag">
+                AI POWERED PRODUCT COMPARISON
+              </span>
+
+              <h1>
+                Compare products.
+                <br />
+                <strong>
+                  Choose smarter.
+                </strong>
+              </h1>
+
+              <p>
+                ProductIQ helps you compare
+                prices, specifications, ratings
+                and AI-powered recommendations.
               </p>
 
               <div className="hero-buttons">
@@ -474,6 +937,7 @@ export default function App() {
                   <span>
                     AI Comparison
                   </span>
+
                   <span className="online">
                     ● Live
                   </span>
@@ -488,6 +952,7 @@ export default function App() {
                     <strong>
                       Product Analysis
                     </strong>
+
                     <small>
                       Price • Specs • Rating
                     </small>
@@ -499,35 +964,51 @@ export default function App() {
                 <div className="mini-bars">
                   <div>
                     <span>Price</span>
+
                     <i>
-                      <em style={{ width: "82%" }} />
+                      <em
+                        style={{
+                          width: "82%",
+                        }}
+                      />
                     </i>
                   </div>
 
                   <div>
                     <span>Specs</span>
+
                     <i>
-                      <em style={{ width: "94%" }} />
+                      <em
+                        style={{
+                          width: "94%",
+                        }}
+                      />
                     </i>
                   </div>
 
                   <div>
                     <span>Rating</span>
+
                     <i>
-                      <em style={{ width: "90%" }} />
+                      <em
+                        style={{
+                          width: "90%",
+                        }}
+                      />
                     </i>
                   </div>
                 </div>
 
                 <div className="mini-result">
                   <span>✦</span>
+
                   AI recommends the best value
                 </div>
-              </div>
               </div>
 
               <div className="floating-card rating-float">
                 <b>★</b>
+
                 <span>
                   Highest
                   <strong>Rated</strong>
@@ -537,12 +1018,13 @@ export default function App() {
           </section>
 
           <section className="content-section">
-
             <div className="section-title">
               <span>WHY PRODUCTIQ</span>
+
               <h2>
                 Everything you need to decide.
               </h2>
+
               <p>
                 One place to compare,
                 understand and choose.
@@ -550,12 +1032,13 @@ export default function App() {
             </div>
 
             <div className="feature-grid-new">
-
               <div className="feature-card-new">
                 <div>🔗</div>
+
                 <h3>
                   Multi-Store Comparison
                 </h3>
+
                 <p>
                   Compare Amazon and Flipkart
                   products side by side.
@@ -564,9 +1047,11 @@ export default function App() {
 
               <div className="feature-card-new">
                 <div>📊</div>
+
                 <h3>
                   Smart Scoring
                 </h3>
+
                 <p>
                   Price, specifications and
                   ratings are scored together.
@@ -575,9 +1060,11 @@ export default function App() {
 
               <div className="feature-card-new">
                 <div>🤖</div>
+
                 <h3>
                   AI Recommendation
                 </h3>
+
                 <p>
                   Get a simple recommendation
                   based on your requirement.
@@ -586,31 +1073,34 @@ export default function App() {
 
               <div className="feature-card-new">
                 <div>💾</div>
+
                 <h3>
                   Save & Like
                 </h3>
+
                 <p>
                   Keep interesting products
                   for later.
                 </p>
               </div>
-
             </div>
           </section>
         </main>
       )}
-  {/* COMPARE */}
+
+      {/* COMPARE */}
 
       {page === "compare" && (
         <main className="content-page">
-
           <div className="page-heading">
             <span>PRODUCT COMPARISON</span>
+
             <h1>
               Find your
               <br />
               <strong>best match.</strong>
             </h1>
+
             <p>
               Add two product URLs and let
               ProductIQ compare them.
@@ -618,7 +1108,6 @@ export default function App() {
           </div>
 
           <section className="compare-panel">
-
             <div className="panel-heading">
               <div className="step-number">
                 01
@@ -628,6 +1117,7 @@ export default function App() {
                 <h2>
                   Add Products
                 </h2>
+
                 <p>
                   Paste Amazon or Flipkart
                   product links.
@@ -636,7 +1126,6 @@ export default function App() {
             </div>
 
             <div className="url-columns">
-
               <div className="url-box">
                 <label>
                   PRODUCT 01
@@ -656,7 +1145,45 @@ export default function App() {
                   />
                 </div>
               </div>
-                                  ANALYSIS COMPLETE
+            <div className="url-input"></div>
+              <div className="url-box">
+                <label>
+                  PRODUCT 02
+                </label>
+
+                <div className="url-input">
+                  <span className="flipkart">
+                    F
+                  </span>
+
+                  <input
+                    value={url2}
+                    onChange={(e) =>
+                      setUrl2(e.target.value)
+                    }
+                    placeholder="Paste Amazon / Flipkart URL"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button
+              className="primary-btn compare-btn"
+              onClick={compare}
+              disabled={loading}
+            >
+              {loading
+                ? "Comparing..."
+                : "Compare Products"}
+            </button>
+          </section>
+
+          {result && (
+            <section className="result-section">
+              <div className="result-heading">
+                <div>
+                  <span>
+                    ANALYSIS COMPLETE
                   </span>
 
                   <h2>
@@ -669,352 +1196,38 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="winner-card">
-
-                <div className="winner-icon">
-                  🏆
-                </div>
-
-                <div className="winner-info">
-                  <span>
-                    RECOMMENDED PRODUCT
-                  </span>
-
-                  <h2>
-                    {clean(
-                      best.name,
-                      "Best Product"
-                    )}
-                  </h2>
-
-                  <p>
-                    {clean(
-                      recommendation,
-                      "This product provides the best overall value."
-                    )}
-                  </p>
-                </div>
-
-                <div className="winner-score">
-                  <strong>
-                    {Math.round(
-                      Number(best.score) || 0
-                    )}
-                  </strong>
-                  <span>/100</span>
-                  <small>
-                    Overall Score
-                  </small>
-                </div>
-
-              </div>
-
-              <div className="stats-row">
-
-                <div>
-                  <span>CHEAPEST</span>
-                  <strong>
-                    {money(
-                      result?.cheapestProduct
-                        ?.price
-                    )}
-                  </strong>
-                </div>
-
-                <div>
-                  <span>
-                    HIGHEST RATED
-                  </span>
-                  <strong>
-                    {result
-                      ?.highestRatedProduct
-                      ?.rating || "N/A"}
-                    ★
-                  </strong>
-                </div>
-
-              <section className="comparison-table-section" aria-labelledby="comparison-table-title">
+              <section
+                className="comparison-table-section"
+                aria-labelledby="comparison-table-title"
+              >
                 <div className="products-heading">
                   <div>
-                    <span>SPECIFICATION BREAKDOWN</span>
-                    <h2 id="comparison-table-title">Comparison Table</h2>
+                    <span>
+                      SPECIFICATION BREAKDOWN
+                    </span>
+
+                    <h2 id="comparison-table-title">
+                      Comparison Table
+                    </h2>
                   </div>
                 </div>
+
                 {products.length < 2 ? (
                   <div className="comparison-table-empty">
-                    Product specifications could not be displayed because the server returned fewer than two products.
+                    Product specifications could
+                    not be displayed because the
+                    server returned fewer than two
+                    products.
                   </div>
                 ) : (
-                  <div className="comparison-table-wrap">
-                    <table className="comparison-table">
-                      <thead>
-                        <tr>
-                          <th scope="col">Feature</th>
-                          {products.map((product, index) => (
-                            <th scope="col" key={`table-head-${index}`}>
-                              {normalizeProduct(product).name}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[
-                          { label: "Brand", get: (p) => p.brand },
-                          { label: "Store / Platform", get: (p) => p.platform || p.store },
-                          { label: "Price", get: (p) => p.price ? money(p.price) : "Not available" },
-                          { label: "Rating", get: (p) => p.rating ? `★ ${p.rating}` : "Not available" },
-                          { label: "Availability", get: (p) => p.availability },
-                          ...Array.from(
-                            new Set(
-                              products.flatMap((product) =>
-                                Object.keys(getSpecificationEntries(product))
-                              )
-                            )
-                          ).sort((a, b) => a.localeCompare(b)).map((key) => ({
-                            label: key.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
-                            get: (p) => getSpecificationEntries(p)[key]
-                          }))
-                        ].map((row, rowIndex) => (
-                          <tr key={`table-row-${rowIndex}`}>
-                            <th scope="row">{row.label}</th>
-                            {products.map((product, productIndex) => {
-                              const normalized = normalizeProduct(product);
-                              const raw = row.get(product);
-                              const value = row.label === "Brand" ? normalized.brand
-                                : row.label === "Store / Platform" ? normalized.platform
-                                : row.label === "Price" ? (normalized.price ? money(normalized.price) : "Not available")
-                                : row.label === "Rating" ? (normalized.rating ? `★ ${normalized.rating}` : "Not available")
-                                : row.label === "Availability" ? normalized.availability
-                                : raw;
-                              return (
-                                <td key={`table-cell-${rowIndex}-${productIndex}`}>
-                                  {displayValue(value)}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <ComparisonTable
+                    products={products}
+                    details={details}
+                    onSave={saveProduct}
+                    onLike={likeProduct}
+                  />
                 )}
               </section>
-
-              <div className="recommendation-box">
-                <div className="recommendation-icon">
-                  ✦
-                </div>
-
-                <div>
-                  <span>
-                    AI RECOMMENDATION
-                  </span>
-
-                  <h3>
-                    What should you choose?
-                  </h3>
-
-                  <p>
-                    {clean(
-                      recommendation
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              <section className="comparison-table-section" aria-labelledby="comparison-table-title">
-                <div className="products-heading">
-                  <div>
-                    <span>SPECIFICATION BREAKDOWN</span>
-                    <h2 id="comparison-table-title">Comparison Table</h2>
-                  </div>
-                </div>
-                {products.length < 2 ? (
-                  <div className="comparison-table-empty">
-                    Product specifications could not be displayed because the server returned fewer than two products.
-                  </div>
-                ) : (
-                  <div className="comparison-table-wrap">
-                    <table className="comparison-table">
-                      <thead>
-                        <tr>
-                          <th scope="col">Feature</th>
-                          {products.map((product, index) => (
-                            <th scope="col" key={`table-head-${index}`}>
-                              {normalizeProduct(product).name}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[
-                          { label: "Brand", get: (p) => p.brand },
-                          { label: "Store / Platform", get: (p) => p.platform || p.store },
-                          { label: "Price", get: (p) => p.price ? money(p.price) : "Not available" },
-                          { label: "Rating", get: (p) => p.rating ? `★ ${p.rating}` : "Not available" },
-                          { label: "Availability", get: (p) => p.availability },
-                          ...Array.from(
-                            new Set(
-                              products.flatMap((product) =>
-                                Object.keys(getSpecificationEntries(product))
-                              )
-                            )
-                          ).sort((a, b) => a.localeCompare(b)).map((key) => ({
-                            label: key.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
-                            get: (p) => getSpecificationEntries(p)[key]
-                          }))
-                        ].map((row, rowIndex) => (
-                          <tr key={`table-row-${rowIndex}`}>
-                            <th scope="row">{row.label}</th>
-                            {products.map((product, productIndex) => {
-                              const normalized = normalizeProduct(product);
-                              const raw = row.get(product);
-                              const value = row.label === "Brand" ? normalized.brand
-                                : row.label === "Store / Platform" ? normalized.platform
-                                : row.label === "Price" ? (normalized.price ? money(normalized.price) : "Not available")
-                                : row.label === "Rating" ? (normalized.rating ? `★ ${normalized.rating}` : "Not available")
-                                : row.label === "Availability" ? normalized.availability
-                                : raw;
-                              return (
-                                <td key={`table-cell-${rowIndex}-${productIndex}`}>
-                                  {displayValue(value)}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-
-              <div className="recommendation-box">
-                <div className="recommendation-icon">
-                  ✦
-                </div>
-
-                <div>
-                  <span>
-                    AI RECOMMENDATION
-                  </span>
-
-                  <h3>
-                    What should you choose?
-                  </h3>
-
-                  <p>
-                    {clean(
-                      recommendation
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              <section className="comparison-table-section" aria-labelledby="comparison-table-title">
-                <div className="products-heading">
-                  <div>
-                    <span>SPECIFICATION BREAKDOWN</span>
-                    <h2 id="comparison-table-title">Comparison Table</h2>
-                  </div>
-                </div>
-                {products.length < 2 ? (
-                  <div className="comparison-table-empty">
-                    Product specifications could not be displayed because the server returned fewer than two products.
-                  </div>
-                ) : (
-                  <div className="comparison-table-wrap">
-                    <table className="comparison-table">
-                      <thead>
-                        <tr>
-                          <th scope="col">Feature</th>
-                          {products.map((product, index) => (
-                            <th scope="col" key={`table-head-${index}`}>
-                              {normalizeProduct(product).name}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[
-                          { label: "Brand", get: (p) => p.brand },
-                          { label: "Store / Platform", get: (p) => p.platform || p.store },
-                          { label: "Price", get: (p) => p.price ? money(p.price) : "Not available" },
-                          { label: "Rating", get: (p) => p.rating ? `★ ${p.rating}` : "Not available" },
-                          { label: "Availability", get: (p) => p.availability },
-                          ...Array.from(
-                            new Set(
-                              products.flatMap((product) =>
-                                Object.keys(getSpecificationEntries(product))
-                              )
-                            )
-                          ).sort((a, b) => a.localeCompare(b)).map((key) => ({
-                            label: key.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
-                            get: (p) => getSpecificationEntries(p)[key]
-                          }))
-                        ].map((row, rowIndex) => (
-                          <tr key={`table-row-${rowIndex}`}>
-                            <th scope="row">{row.label}</th>
-                            {products.map((product, productIndex) => {
-                              const normalized = normalizeProduct(product);
-                              const raw = row.get(product);
-                              const value = row.label === "Brand" ? normalized.brand
-                                : row.label === "Store / Platform" ? normalized.platform
-                                : row.label === "Price" ? (normalized.price ? money(normalized.price) : "Not available")
-                                : row.label === "Rating" ? (normalized.rating ? `★ ${normalized.rating}` : "Not available")
-                                : row.label === "Availability" ? normalized.availability
-                                : raw;
-                              return (
-                                <td key={`table-cell-${rowIndex}-${productIndex}`}>
-                                  {displayValue(value)}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-
-              <div className="recommendation-box">
-                <div className="recommendation-icon">
-                  ✦
-                </div>
-
-                <div>
-                  <span>
-                    AI RECOMMENDATION
-                  </span>
-
-                  <h3>
-                    What should you choose?
-                  </h3>
-
-                  <p>
-                    {clean(
-                      recommendation
-                    )}
-                  </p>
-                </div>
-              </div>
-                <div>
-                  <span>SPECIFICATIONS</span>
-                  <strong>40%</strong>
-                </div>
-
-                <div>
-                  <span>RATING</span>
-                  <strong>20%</strong>
-                </div>
-
-                <div>
-                  <span>DATA CONFIDENCE</span>
-                  <strong>15%</strong>
-                </div>
-              </div>
-
             </section>
           )}
         </main>
@@ -1024,14 +1237,15 @@ export default function App() {
 
       {page === "saved" && (
         <main className="content-page">
-
           <div className="page-heading">
             <span>SAVED PRODUCTS</span>
+
             <h1>
               Your saved
               <br />
               <strong>products.</strong>
             </h1>
+
             <p>
               Products you want to keep for
               later.
@@ -1041,13 +1255,16 @@ export default function App() {
           {saved.length === 0 ? (
             <div className="empty-state">
               <div>♡</div>
+
               <h2>
                 No saved products
               </h2>
+
               <p>
                 Save products from the
                 comparison page.
               </p>
+
               <button
                 className="primary-btn"
                 onClick={() =>
@@ -1076,16 +1293,39 @@ export default function App() {
           )}
         </main>
       )}
+
+      {/* LIKED */}
+
+      {page === "liked" && (
+        <main className="content-page">
+          <div className="page-heading">
+            <span>LIKED PRODUCTS</span>
+
+            <h1>
+              Your liked
+              <br />
+              <strong>products.</strong>
+            </h1>
+
+            <p>
+              Products you marked as
+              interesting.
+            </p>
+          </div>
+
           {liked.length === 0 ? (
             <div className="empty-state">
               <div>♥</div>
+
               <h2>
                 No liked products
               </h2>
+
               <p>
                 Like products from your
                 comparison results.
               </p>
+
               <button
                 className="primary-btn"
                 onClick={() =>
@@ -1119,12 +1359,12 @@ export default function App() {
 
       {page === "history" && (
         <main className="content-page">
-
           <div className="history-header">
             <div className="page-heading">
               <span>
                 COMPARISON HISTORY
               </span>
+
               <h1>
                 Your recent
                 <br />
@@ -1145,20 +1385,23 @@ export default function App() {
           {history.length === 0 ? (
             <div className="empty-state">
               <div>◷</div>
+
               <h2>
                 No comparison history
               </h2>
+
               <p>
                 Your comparisons will appear
                 here automatically.
               </p>
+
               <button
                 className="primary-btn"
                 onClick={() =>
                   setPage("compare")
                 }
               >
-                 Start Comparing →
+                Start Comparing →
               </button>
             </div>
           ) : (
@@ -1204,6 +1447,7 @@ export default function App() {
           <strong>
             ProductIQ
           </strong>
+
           <span>
             AI Product Comparison Assistant
           </span>
